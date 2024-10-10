@@ -108,6 +108,13 @@ class BaseModelCredential(ABC):
         """
         pass
 
+    def get_model_params_setting_form(self, model_name):
+        """
+               模型参数设置表单
+               :return:
+        """
+        pass
+
     @staticmethod
     def encryption(message: str):
         """
@@ -132,6 +139,9 @@ class BaseModelCredential(ABC):
 class ModelTypeConst(Enum):
     LLM = {'code': 'LLM', 'message': '大语言模型'}
     EMBEDDING = {'code': 'EMBEDDING', 'message': '向量模型'}
+    STT = {'code': 'STT', 'message': '语音识别'}
+    TTS = {'code': 'TTS', 'message': '语音合成'}
+    RERANKER = {'code': 'RERANKER', 'message': '重排模型'}
 
 
 class ModelInfo:

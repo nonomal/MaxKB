@@ -19,6 +19,11 @@ urlpatterns = [
     path('application/<str:application_id>/statistics/chat_record_aggregate_trend',
          views.ApplicationStatistics.ChatRecordAggregateTrend.as_view()),
     path('application/<str:application_id>/model', views.Application.Model.as_view()),
+    path('application/<str:application_id>/function_lib', views.Application.FunctionLib.as_view()),
+    path('application/<str:application_id>/function_lib/<str:function_lib_id>',
+         views.Application.FunctionLib.Operate.as_view()),
+    path('application/<str:application_id>/model_params_form/<str:model_id>',
+         views.Application.ModelParamsForm.as_view()),
     path('application/<str:application_id>/hit_test', views.Application.HitTest.as_view()),
     path('application/<str:application_id>/api_key', views.Application.ApplicationKey.as_view()),
     path("application/<str:application_id>/api_key/<str:api_key_id>",
@@ -37,6 +42,8 @@ urlpatterns = [
     path("application/<str:application_id>/chat/client/<chat_id>",
          views.ChatView.ClientChatHistoryPage.Operate.as_view()),
     path('application/<str:application_id>/chat/export', views.ChatView.Export.as_view(), name='export'),
+    path('application/<str:application_id>/chat/completions', views.Openai.as_view(),
+         name='application/chat_completions'),
     path('application/<str:application_id>/chat', views.ChatView.as_view(), name='chats'),
     path('application/<str:application_id>/chat/<int:current_page>/<int:page_size>', views.ChatView.Page.as_view()),
     path('application/<str:application_id>/chat/<chat_id>', views.ChatView.Operate.as_view()),
@@ -58,5 +65,10 @@ urlpatterns = [
     path(
         'application/<str:application_id>/chat/<chat_id>/chat_record/<str:chat_record_id>/dataset/<str:dataset_id>/document_id/<str:document_id>/improve/<str:paragraph_id>',
         views.ChatView.ChatRecord.Improve.Operate.as_view(),
-        name='')
+        name=''),
+    path('application/<str:application_id>/speech_to_text', views.Application.SpeechToText.as_view(),
+         name='application/audio'),
+    path('application/<str:application_id>/text_to_speech', views.Application.TextToSpeech.as_view(),
+         name='application/audio'),
+
 ]

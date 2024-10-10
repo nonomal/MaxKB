@@ -7,16 +7,24 @@
     @desc:
 """
 import json
+import traceback
 from functools import reduce
 from typing import List, Dict
 
-from langchain_core.messages import AIMessage
+from django.db.models import QuerySet
 from langchain_core.prompts import PromptTemplate
+from rest_framework import status
+from rest_framework.exceptions import ErrorDetail, ValidationError
 
 from application.flow import tools
 from application.flow.i_step_node import INode, WorkFlowPostHandler, NodeResult
 from application.flow.step_node import get_node
 from common.exception.app_exception import AppApiException
+from common.handle.base_to_response import BaseToResponse
+from common.handle.impl.response.system_to_response import SystemToResponse
+from function_lib.models.function import FunctionLib
+from setting.models import Model
+from setting.models_provider import get_model_credential
 
 
 class Edge:
@@ -40,7 +48,7 @@ class Node:
             self.__setattr__(keyword, kwargs.get(keyword))
 
 
-end_nodes = ['ai-chat-node', 'reply-node']
+end_nodes = ['ai-chat-node', 'reply-node', 'function-node', 'function-lib-node']
 
 
 class Flow:
@@ -68,6 +76,7 @@ class Flow:
         """
         校验工作流数据
         """
+        self.is_valid_model_params()
         self.is_valid_start_node()
         self.is_valid_base_node()
         self.is_valid_work_flow()
@@ -123,6 +132,31 @@ class Flow:
         if len(start_node_list) > 1:
             raise AppApiException(500, '开始节点只能有一个')
 
+    def is_valid_model_params(self):
+        node_list = [node for node in self.nodes if (node.type == 'ai-chat-node' or node.type == 'question-node')]
+        for node in node_list:
+            model = QuerySet(Model).filter(id=node.properties.get('node_data', {}).get('model_id')).first()
+            if model is None:
+                raise ValidationError(ErrorDetail(f'节点{node.properties.get("stepName")} 模型不存在'))
+            credential = get_model_credential(model.provider, model.model_type, model.model_name)
+            model_params_setting = node.properties.get('node_data', {}).get('model_params_setting')
+            model_params_setting_form = credential.get_model_params_setting_form(
+                model.model_name)
+            if model_params_setting is None:
+                model_params_setting = model_params_setting_form.get_default_form_data()
+                node.properties.get('node_data', {})['model_params_setting'] = model_params_setting
+            model_params_setting_form.valid_form(model_params_setting)
+            if node.properties.get('status', 200) != 200:
+                raise ValidationError(ErrorDetail(f'节点{node.properties.get("stepName")} 不可用'))
+        node_list = [node for node in self.nodes if (node.type == 'function-lib-node')]
+        for node in node_list:
+            function_lib_id = node.properties.get('node_data', {}).get('function_lib_id')
+            if function_lib_id is None:
+                raise ValidationError(ErrorDetail(f'节点{node.properties.get("stepName")} 函数库id不能为空'))
+            f_lib = QuerySet(FunctionLib).filter(id=function_lib_id).first()
+            if f_lib is None:
+                raise ValidationError(ErrorDetail(f'节点{node.properties.get("stepName")} 函数库不可用'))
+
     def is_valid_base_node(self):
         base_node_list = [node for node in self.nodes if node.id == 'base-node']
         if len(base_node_list) == 0:
@@ -132,7 +166,11 @@ class Flow:
 
 
 class WorkflowManage:
-    def __init__(self, flow: Flow, params, work_flow_post_handler: WorkFlowPostHandler):
+    def __init__(self, flow: Flow, params, work_flow_post_handler: WorkFlowPostHandler,
+                 base_to_response: BaseToResponse = SystemToResponse(), form_data=None):
+        if form_data is None:
+            form_data = {}
+        self.form_data = form_data
         self.params = params
         self.flow = flow
         self.context = {}
@@ -141,6 +179,7 @@ class WorkflowManage:
         self.current_node = None
         self.current_result = None
         self.answer = ""
+        self.base_to_response = base_to_response
 
     def run(self):
         if self.params.get('stream'):
@@ -151,19 +190,33 @@ class WorkflowManage:
         try:
             while self.has_next_node(self.current_result):
                 self.current_node = self.get_next_node()
+                self.current_node.valid_args(self.current_node.node_params, self.current_node.workflow_params)
                 self.node_context.append(self.current_node)
                 self.current_result = self.current_node.run()
                 result = self.current_result.write_context(self.current_node, self)
                 if result is not None:
                     list(result)
                 if not self.has_next_node(self.current_result):
-                    return tools.to_response_simple(self.params['chat_id'], self.params['chat_record_id'],
-                                                    AIMessage(self.answer), self,
-                                                    self.work_flow_post_handler)
+                    details = self.get_runtime_details()
+                    message_tokens = sum([row.get('message_tokens') for row in details.values() if
+                                          'message_tokens' in row and row.get('message_tokens') is not None])
+                    answer_tokens = sum([row.get('answer_tokens') for row in details.values() if
+                                         'answer_tokens' in row and row.get('answer_tokens') is not None])
+                    self.work_flow_post_handler.handler(self.params['chat_id'], self.params['chat_record_id'],
+                                                        self.answer,
+                                                        self)
+                    return self.base_to_response.to_block_response(self.params['chat_id'],
+                                                                   self.params['chat_record_id'], self.answer, True
+                                                                   , message_tokens, answer_tokens)
         except Exception as e:
-            return tools.to_response(self.params['chat_id'], self.params['chat_record_id'],
-                                     AIMessage(str(e)), self, self.current_node.get_write_error_context(e),
-                                     self.work_flow_post_handler)
+            traceback.print_exc()
+            self.current_node.get_write_error_context(e)
+            self.work_flow_post_handler.handler(self.params['chat_id'], self.params['chat_record_id'],
+                                                self.answer,
+                                                self)
+            return self.base_to_response.to_block_response(self.params['chat_id'], self.params['chat_record_id'],
+                                                           str(e), True,
+                                                           0, 0, _status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def run_stream(self):
         return tools.to_stream_response_simple(self.stream_event())
@@ -173,14 +226,32 @@ class WorkflowManage:
             while self.has_next_node(self.current_result):
                 self.current_node = self.get_next_node()
                 self.node_context.append(self.current_node)
+                self.current_node.valid_args(self.current_node.node_params, self.current_node.workflow_params)
                 self.current_result = self.current_node.run()
                 result = self.current_result.write_context(self.current_node, self)
+                has_next_node = self.has_next_node(self.current_result)
                 if result is not None:
-                    for r in result:
-                        if self.is_result():
-                            yield self.get_chunk_content(r)
-                if not self.has_next_node(self.current_result):
-                    yield self.get_chunk_content('', True)
+                    if self.is_result():
+                        for r in result:
+                            yield self.base_to_response.to_stream_chunk_response(self.params['chat_id'],
+                                                                                 self.params['chat_record_id'],
+                                                                                 r, False, 0, 0)
+                        if has_next_node:
+                            yield self.base_to_response.to_stream_chunk_response(self.params['chat_id'],
+                                                                                 self.params['chat_record_id'],
+                                                                                 '\n', False, 0, 0)
+                            self.answer += '\n'
+                    else:
+                        list(result)
+                if not has_next_node:
+                    details = self.get_runtime_details()
+                    message_tokens = sum([row.get('message_tokens') for row in details.values() if
+                                          'message_tokens' in row and row.get('message_tokens') is not None])
+                    answer_tokens = sum([row.get('answer_tokens') for row in details.values() if
+                                         'answer_tokens' in row and row.get('answer_tokens') is not None])
+                    yield self.base_to_response.to_stream_chunk_response(self.params['chat_id'],
+                                                                         self.params['chat_record_id'],
+                                                                         '', True, message_tokens, answer_tokens)
                     break
             self.work_flow_post_handler.handler(self.params['chat_id'], self.params['chat_record_id'],
                                                 self.answer,
@@ -191,7 +262,8 @@ class WorkflowManage:
             self.work_flow_post_handler.handler(self.params['chat_id'], self.params['chat_record_id'],
                                                 self.answer,
                                                 self)
-            yield self.get_chunk_content(str(e), True)
+            yield self.base_to_response.to_stream_chunk_response(self.params['chat_id'], self.params['chat_record_id'],
+                                                                 str(e), True, 0, 0)
 
     def is_result(self):
         """
@@ -239,7 +311,7 @@ class WorkflowManage:
         """
         if self.current_node is None:
             node = self.get_start_node()
-            node_instance = get_node(node.type)(node, self.params, self.context)
+            node_instance = get_node(node.type)(node, self.params, self)
             return node_instance
         if self.current_result is not None and self.current_result.is_assertion_result():
             for edge in self.flow.edges:
@@ -304,6 +376,14 @@ class WorkflowManage:
         """
         start_node_list = [node for node in self.flow.nodes if node.type == 'start-node']
         return start_node_list[0]
+
+    def get_base_node(self):
+        """
+        获取基础节点
+        @return:
+        """
+        base_node_list = [node for node in self.flow.nodes if node.type == 'base-node']
+        return base_node_list[0]
 
     def get_node_cls_by_id(self, node_id):
         for node in self.flow.nodes:

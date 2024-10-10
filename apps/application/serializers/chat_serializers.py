@@ -11,14 +11,15 @@ import os
 import re
 import uuid
 from functools import reduce
+from io import BytesIO
 from typing import Dict
 
-import xlwt
+import openpyxl
 from django.core import validators
 from django.core.cache import caches
 from django.db import transaction, models
 from django.db.models import QuerySet, Q
-from django.http import HttpResponse
+from django.http import StreamingHttpResponse
 from rest_framework import serializers
 
 from application.flow.workflow_manage import Flow
@@ -30,15 +31,17 @@ from application.serializers.application_serializers import ModelDatasetAssociat
 from application.serializers.chat_message_serializers import ChatInfo
 from common.constants.permission_constants import RoleConstants
 from common.db.search import native_search, native_page_search, page_search, get_dynamics_model
-from common.event import ListenerManagement
 from common.exception.app_exception import AppApiException
 from common.util.common import post
 from common.util.field_message import ErrMessage
 from common.util.file_util import get_file_content
 from common.util.lock import try_lock, un_lock
 from dataset.models import Document, Problem, Paragraph, ProblemParagraphMapping
-from dataset.serializers.common_serializers import get_embedding_model_by_dataset_id
+from dataset.serializers.common_serializers import get_embedding_model_id_by_dataset_id
 from dataset.serializers.paragraph_serializers import ParagraphSerializers
+from embedding.task import embedding_by_paragraph
+from setting.models import Model
+from setting.models_provider import get_model_credential
 from smartdoc.conf import PROJECT_DIR
 
 chat_cache = caches['chat_cache']
@@ -47,6 +50,17 @@ chat_cache = caches['chat_cache']
 class WorkFlowSerializers(serializers.Serializer):
     nodes = serializers.ListSerializer(child=serializers.DictField(), error_messages=ErrMessage.uuid("节点"))
     edges = serializers.ListSerializer(child=serializers.DictField(), error_messages=ErrMessage.uuid("连线"))
+
+
+def valid_model_params_setting(model_id, model_params_setting):
+    if model_id is None:
+        return
+    model = QuerySet(Model).filter(id=model_id).first()
+    credential = get_model_credential(model.provider, model.model_type, model.model_name)
+    model_params_setting_form = credential.get_model_params_setting_form(model.model_name)
+    if model_params_setting is None or len(model_params_setting.keys()) == 0:
+        model_params_setting = model_params_setting_form.get_default_form_data()
+    credential.get_model_params_setting_form(model.model_name).valid_form(model_params_setting)
 
 
 class ChatSerializers(serializers.Serializer):
@@ -164,28 +178,45 @@ class ChatSerializers(serializers.Serializer):
         def export(self, with_valid=True):
             if with_valid:
                 self.is_valid(raise_exception=True)
-            data_list = native_search(self.get_query_set(), select_string=get_file_content(
-                os.path.join(PROJECT_DIR, "apps", "application", 'sql', 'export_application_chat.sql')),
+
+            data_list = native_search(self.get_query_set(),
+                                      select_string=get_file_content(
+                                          os.path.join(PROJECT_DIR, "apps", "application", 'sql',
+                                                       'export_application_chat.sql')),
                                       with_table_name=False)
 
-            # 创建工作簿对象
-            workbook = xlwt.Workbook(encoding='utf-8')
-            # 添加工作表
-            worksheet = workbook.add_sheet('Sheet1')
-            data = [
-                ['会话ID', '摘要', '用户问题', '优化后问题', '回答', '用户反馈', '引用分段数', '分段标题+内容',
-                 '标注', '消耗tokens', '耗时（s）', '提问时间'],
-                *[self.to_row(row) for row in data_list]
-            ]
-            # 写入数据到工作表
-            for row_idx, row in enumerate(data):
-                for col_idx, col in enumerate(row):
-                    worksheet.write(row_idx, col_idx, col)
-                # 创建HttpResponse对象返回Excel文件
-            response = HttpResponse(content_type='application/vnd.ms-excel')
-            response['Content-Disposition'] = 'attachment; filename="data.xls"'
+            batch_size = 500
 
-            workbook.save(response)
+            def stream_response():
+                workbook = openpyxl.Workbook()
+                worksheet = workbook.active
+                worksheet.title = 'Sheet1'
+
+                headers = ['会话ID', '摘要', '用户问题', '优化后问题', '回答', '用户反馈', '引用分段数',
+                           '分段标题+内容',
+                           '标注', '消耗tokens', '耗时（s）', '提问时间']
+                for col_idx, header in enumerate(headers, 1):
+                    cell = worksheet.cell(row=1, column=col_idx)
+                    cell.value = header
+
+                for i in range(0, len(data_list), batch_size):
+                    batch_data = data_list[i:i + batch_size]
+
+                    for row_idx, row in enumerate(batch_data, start=i + 2):
+                        for col_idx, value in enumerate(self.to_row(row), 1):
+                            cell = worksheet.cell(row=row_idx, column=col_idx)
+                            cell.value = value
+
+                output = BytesIO()
+                workbook.save(output)
+                output.seek(0)
+                yield output.getvalue()
+                output.close()
+                workbook.close()
+
+            response = StreamingHttpResponse(stream_response(),
+                                             content_type='application/vnd.open.xmlformats-officedocument.spreadsheetml.sheet')
+            response['Content-Disposition'] = 'attachment; filename="data.xlsx"'
             return response
 
         def page(self, current_page: int, page_size: int, with_valid=True):
@@ -225,19 +256,20 @@ class ChatSerializers(serializers.Serializer):
             if work_flow_version is None:
                 raise AppApiException(500, "应用未发布,请发布后再使用")
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, [],
+                           ChatInfo(chat_id, [],
                                     [],
                                     application, work_flow_version), timeout=60 * 30)
             return chat_id
 
         def open_simple(self, application):
+            valid_model_params_setting(application.model_id, application.model_params_setting)
             application_id = self.data.get('application_id')
             dataset_id_list = [str(row.dataset_id) for row in
                                QuerySet(ApplicationDatasetMapping).filter(
                                    application_id=application_id)]
             chat_id = str(uuid.uuid1())
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, dataset_id_list,
+                           ChatInfo(chat_id, dataset_id_list,
                                     [str(document.id) for document in
                                      QuerySet(Document).filter(
                                          dataset_id__in=dataset_id_list,
@@ -263,7 +295,7 @@ class ChatSerializers(serializers.Serializer):
                                       )
             work_flow_version = WorkFlowVersion(work_flow=work_flow)
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, [],
+                           ChatInfo(chat_id, [],
                                     [],
                                     application, work_flow_version), timeout=60 * 30)
             return chat_id
@@ -287,6 +319,8 @@ class ChatSerializers(serializers.Serializer):
         model_setting = ModelSettingSerializer(required=True)
         # 问题补全
         problem_optimization = serializers.BooleanField(required=True, error_messages=ErrMessage.boolean("问题补全"))
+        # 模型相关设置
+        model_params_setting = serializers.JSONField(required=False, error_messages=ErrMessage.dict("模型参数相关设置"))
 
         def is_valid(self, *, raise_exception=False):
             super().is_valid(raise_exception=True)
@@ -310,13 +344,15 @@ class ChatSerializers(serializers.Serializer):
             model_id = self.data.get('model_id')
             dataset_id_list = self.data.get('dataset_id_list')
             dialogue_number = 3 if self.data.get('multiple_rounds_dialogue', False) else 0
+            valid_model_params_setting(model_id, self.data.get('model_params_setting'))
             application = Application(id=None, dialogue_number=dialogue_number, model_id=model_id,
                                       dataset_setting=self.data.get('dataset_setting'),
                                       model_setting=self.data.get('model_setting'),
                                       problem_optimization=self.data.get('problem_optimization'),
+                                      model_params_setting=self.data.get('model_params_setting'),
                                       user_id=user_id)
             chat_cache.set(chat_id,
-                           ChatInfo(chat_id, None, dataset_id_list,
+                           ChatInfo(chat_id, dataset_id_list,
                                     [str(document.id) for document in
                                      QuerySet(Document).filter(
                                          dataset_id__in=dataset_id_list,
@@ -415,8 +451,8 @@ class ChatRecordSerializer(serializers.Serializer):
         def page(self, current_page: int, page_size: int, with_valid=True):
             if with_valid:
                 self.is_valid(raise_exception=True)
-            order_by = 'create_time' if self.data.get('order_asc') is None or self.data.get(
-                'order_asc') else '-create_time'
+            order_by = '-create_time' if self.data.get('order_asc') is None or self.data.get(
+                'order_asc') else 'create_time'
             page = page_search(current_page, page_size,
                                QuerySet(ChatRecord).filter(chat_id=self.data.get('chat_id')).order_by(order_by),
                                post_records_handler=lambda chat_record: self.reset_chat_record(chat_record))
@@ -516,9 +552,9 @@ class ChatRecordSerializer(serializers.Serializer):
 
         @staticmethod
         def post_embedding_paragraph(chat_record, paragraph_id, dataset_id):
-            model = get_embedding_model_by_dataset_id(dataset_id)
+            model_id = get_embedding_model_id_by_dataset_id(dataset_id)
             # 发送向量化事件
-            ListenerManagement.embedding_by_paragraph_signal.send(paragraph_id, embedding_model=model)
+            embedding_by_paragraph(paragraph_id, model_id)
             return chat_record
 
         @post(post_function=post_embedding_paragraph)

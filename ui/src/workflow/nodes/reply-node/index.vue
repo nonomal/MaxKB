@@ -3,9 +3,6 @@
     <el-card shadow="never" class="card-never" style="--el-card-padding: 12px">
       <el-form
         @submit.prevent
-        @mousedown.stop
-        @keydown.stop
-        @click.stop
         :model="form_data"
         label-position="top"
         require-asterisk-position="right"
@@ -27,30 +24,21 @@
               </el-select>
             </div>
           </template>
-          <MdEditor
+
+          <MdEditorMagnify
             v-if="form_data.reply_type === 'content'"
             @wheel="wheel"
-            @keydown="isKeyDown = true"
-            @keyup="isKeyDown = false"
-            class="reply-node-editor"
-            style="height: 150px"
+            title="回复内容"
             v-model="form_data.content"
-            :preview="false"
-            :toolbars="[]"
-            :footers="footers"
-          >
-            <template #defFooters>
-              <el-button text type="info" @click="openDialog">
-                <AppIcon iconName="app-magnify" style="font-size: 16px"></AppIcon>
-              </el-button>
-            </template>
-          </MdEditor>
+            style="height: 150px"
+            @submitDialog="submitDialog"
+          />
           <NodeCascader
             v-else
             ref="nodeCascaderRef"
             :nodeModel="nodeModel"
             class="w-full"
-            placeholder="请选择检索问题输入"
+            placeholder="请选择检索问题"
             v-model="form_data.fields"
           />
         </el-form-item>
@@ -73,15 +61,6 @@
         </el-form-item>
       </el-form>
     </el-card>
-    <!-- 回复内容弹出层 -->
-    <el-dialog v-model="dialogVisible" title="回复内容" append-to-body>
-      <MdEditor v-model="cloneContent" :preview="false" :toolbars="[]" :footers="[]"> </MdEditor>
-      <template #footer>
-        <div class="dialog-footer mt-24">
-          <el-button type="primary" @click="submitDialog"> 确认 </el-button>
-        </div>
-      </template>
-    </el-dialog>
   </NodeContainer>
 </template>
 <script setup lang="ts">
@@ -92,10 +71,11 @@ import { ref, computed, onMounted } from 'vue'
 import { isLastNode } from '@/workflow/common/data'
 
 const props = defineProps<{ nodeModel: any }>()
-const isKeyDown = ref(false)
+
 const wheel = (e: any) => {
-  if (isKeyDown.value) {
+  if (e.ctrlKey === true) {
     e.preventDefault()
+    return true
   } else {
     e.stopPropagation()
     return true
@@ -107,7 +87,6 @@ const form = {
   fields: [],
   is_result: false
 }
-const footers: any = [null, '=', 0]
 
 const form_data = computed({
   get: () => {
@@ -123,18 +102,10 @@ const form_data = computed({
   }
 })
 
-const dialogVisible = ref(false)
-const cloneContent = ref('')
-
-function openDialog() {
-  cloneContent.value = form_data.value.content
-  dialogVisible.value = true
+function submitDialog(val: string) {
+  set(props.nodeModel.properties.node_data, 'content', val)
 }
 
-function submitDialog() {
-  set(props.nodeModel.properties.node_data, 'content', cloneContent.value)
-  dialogVisible.value = false
-}
 const replyNodeFormRef = ref()
 const nodeCascaderRef = ref()
 const validate = () => {
@@ -156,10 +127,4 @@ onMounted(() => {
   set(props.nodeModel, 'validate', validate)
 })
 </script>
-<style lang="scss" scoped>
-.reply-node-editor {
-  :deep(.md-editor-footer) {
-    border: none !important;
-  }
-}
-</style>
+<style lang="scss" scoped></style>

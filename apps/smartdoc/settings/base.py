@@ -41,7 +41,9 @@ INSTALLED_APPS = [
     "drf_yasg",  # swagger 接口
     'django_filters',  # 条件过滤
     'django_apscheduler',
-    'common'
+    'common',
+    'function_lib',
+    'django_celery_beat'
 
 ]
 
@@ -59,6 +61,7 @@ JWT_AUTH = {
     'JWT_EXPIRATION_DELTA': datetime.timedelta(seconds=60 * 60 * 2)  # <-- 设置token有效时间
 }
 
+APPS_DIR = os.path.join(PROJECT_DIR, 'apps')
 ROOT_URLCONF = 'smartdoc.urls'
 # FORCE_SCRIPT_NAME
 TEMPLATES = [
@@ -102,13 +105,8 @@ CACHES = {
         }
     },
     'chat_cache': {
-        'BACKEND': 'common.cache.mem_cache.MemCache',
-        'LOCATION': 'unique-snowflake',
-        'TIMEOUT': 60 * 30,
-        'OPTIONS': {
-            'MAX_ENTRIES': 150,
-            'CULL_FREQUENCY': 5,
-        }
+        'BACKEND': 'common.cache.file_cache.FileCache',
+        'LOCATION': os.path.join(PROJECT_DIR, 'data', 'cache', "chat_cache")  # 文件夹路径
     },
     # 存储用户信息
     'user_cache': {

@@ -19,9 +19,11 @@ import InfiniteScroll from './infinite-scroll/index.vue'
 import AutoTooltip from './auto-tooltip/index.vue'
 import MdEditor from './markdown/MdEditor.vue'
 import MdPreview from './markdown/MdPreview.vue'
+import MdEditorMagnify from './markdown/MdEditorMagnify.vue'
 import LogoFull from './logo/LogoFull.vue'
 import LogoIcon from './logo/LogoIcon.vue'
 import SendIcon from './logo/SendIcon.vue'
+import CodemirrorEditor from './codemirror-editor/index.vue'
 
 export default {
   install(app: App) {
@@ -48,5 +50,7 @@ export default {
     app.component(LogoFull.name, LogoFull)
     app.component(LogoIcon.name, LogoIcon)
     app.component(SendIcon.name, SendIcon)
+    app.component(CodemirrorEditor.name, CodemirrorEditor)
+    app.component(MdEditorMagnify.name, MdEditorMagnify)
   }
 }

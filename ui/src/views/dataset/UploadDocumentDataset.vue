@@ -25,7 +25,7 @@
       <el-button @click="router.go(-1)" :disabled="loading">取消</el-button>
       <el-button @click="prev" v-if="active === 1" :disabled="loading">上一步</el-button>
       <el-button @click="next" type="primary" v-if="active === 0" :disabled="loading">
-        创建并导入
+        {{ documentsType === 'txt' ? '下一步' : '开始导入' }}
       </el-button>
       <el-button @click="submit" type="primary" v-if="active === 1" :disabled="loading">
         开始导入
@@ -39,9 +39,7 @@ import { useRouter, useRoute } from 'vue-router'
 import SetRules from './component/SetRules.vue'
 import ResultSuccess from './component/ResultSuccess.vue'
 import UploadComponent from './component/UploadComponent.vue'
-import datasetApi from '@/api/dataset'
 import documentApi from '@/api/document'
-import type { datasetData } from '@/api/type/dataset'
 import { MsgConfirm, MsgSuccess } from '@/utils/message'
 
 import useStore from '@/stores'
@@ -75,6 +73,21 @@ async function next() {
       if (id) {
         // QA文档上传
         documentApi.postQADocument(id as string, fd, loading).then((res) => {
+          MsgSuccess('提交成功')
+          clearStore()
+          router.push({ path: `/dataset/${id}/document` })
+        })
+      }
+    } else if (documentsType.value === 'table') {
+      let fd = new FormData()
+      documentsFiles.value.forEach((item: any) => {
+        if (item?.raw) {
+          fd.append('file', item?.raw)
+        }
+      })
+      if (id) {
+        // table文档上传
+        documentApi.postTableDocument(id as string, fd, loading).then((res) => {
           MsgSuccess('提交成功')
           clearStore()
           router.push({ path: `/dataset/${id}/document` })

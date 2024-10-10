@@ -39,18 +39,19 @@ export function fileType(name: string) {
 */
 const typeList: any = {
   txt: ['txt', 'pdf', 'docx', 'csv', 'md', 'html'],
+  table: ['xlsx', 'xls', 'csv'],
   QA: ['xlsx', 'csv', 'xls']
 }
 
 export function getImgUrl(name: string) {
   const list = Object.values(typeList).flat()
 
-  const type = list.includes(fileType(name)) ? fileType(name) : 'unknow'
+  const type = list.includes(fileType(name).toLowerCase()) ? fileType(name).toLowerCase() : 'unknow'
   return new URL(`../assets/${type}-icon.svg`, import.meta.url).href
 }
 // 是否是白名单后缀
 export function isRightType(name: string, type: string) {
-  return typeList[type].includes(fileType(name))
+  return typeList[type].includes(fileType(name).toLowerCase())
 }
 
 /*

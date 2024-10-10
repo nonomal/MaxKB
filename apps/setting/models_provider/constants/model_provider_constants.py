@@ -8,6 +8,8 @@
 """
 from enum import Enum
 
+from setting.models_provider.impl.aliyun_bai_lian_model_provider.aliyun_bai_lian_model_provider import \
+    AliyunBaiLianModelProvider
 from setting.models_provider.impl.aws_bedrock_model_provider.aws_bedrock_model_provider import BedrockModelProvider
 from setting.models_provider.impl.azure_model_provider.azure_model_provider import AzureModelProvider
 from setting.models_provider.impl.deepseek_model_provider.deepseek_model_provider import DeepSeekModelProvider
@@ -17,10 +19,12 @@ from setting.models_provider.impl.ollama_model_provider.ollama_model_provider im
 from setting.models_provider.impl.openai_model_provider.openai_model_provider import OpenAIModelProvider
 from setting.models_provider.impl.qwen_model_provider.qwen_model_provider import QwenModelProvider
 from setting.models_provider.impl.tencent_model_provider.tencent_model_provider import TencentModelProvider
+from setting.models_provider.impl.vllm_model_provider.vllm_model_provider import VllmModelProvider
 from setting.models_provider.impl.volcanic_engine_model_provider.volcanic_engine_model_provider import \
     VolcanicEngineModelProvider
 from setting.models_provider.impl.wenxin_model_provider.wenxin_model_provider import WenxinModelProvider
 from setting.models_provider.impl.xf_model_provider.xf_model_provider import XunFeiModelProvider
+from setting.models_provider.impl.xinference_model_provider.xinference_model_provider import XinferenceModelProvider
 from setting.models_provider.impl.zhipu_model_provider.zhipu_model_provider import ZhiPuModelProvider
 from setting.models_provider.impl.local_model_provider.local_model_provider import LocalModelProvider
 
@@ -40,3 +44,6 @@ class ModelProvideConstants(Enum):
     model_tencent_provider = TencentModelProvider()
     model_aws_bedrock_provider = BedrockModelProvider()
     model_local_provider = LocalModelProvider()
+    model_xinference_provider = XinferenceModelProvider()
+    model_vllm_provider = VllmModelProvider()
+    aliyun_bai_lian_model_provider = AliyunBaiLianModelProvider()

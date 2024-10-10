@@ -27,6 +27,7 @@ from common.response import result
 from common.swagger_api.common_api import CommonApi
 from common.util.common import query_params_to_single_dict
 from dataset.serializers.dataset_serializers import DataSetSerializers
+from setting.swagger_api.provide_api import ProvideApi
 
 chat_cache = cache.caches['chat_cache']
 
@@ -166,7 +167,7 @@ class Application(APIView):
         def get(self, request: Request):
             return ApplicationSerializer.Embed(
                 data={'protocol': request.query_params.get('protocol'), 'token': request.query_params.get('token'),
-                      'host': request.query_params.get('host'), }).get_embed()
+                      'host': request.query_params.get('host'), }).get_embed(params=request.query_params)
 
     class Model(APIView):
         authentication_classes = [TokenAuth]
@@ -186,6 +187,61 @@ class Application(APIView):
                 ApplicationSerializer.Operate(
                     data={'application_id': application_id,
                           'user_id': request.user.id}).list_model(request.query_params.get('model_type')))
+
+    class ModelParamsForm(APIView):
+        authentication_classes = [TokenAuth]
+
+        @action(methods=['GET'], detail=False)
+        @swagger_auto_schema(operation_summary="获取模型参数表单",
+                             operation_id="获取模型参数表单",
+                             tags=["模型"])
+        @has_permissions(ViewPermission(
+            [RoleConstants.ADMIN, RoleConstants.USER],
+            [lambda r, keywords: Permission(group=Group.APPLICATION, operate=Operate.USE,
+                                            dynamic_tag=keywords.get('application_id'))],
+            compare=CompareConstants.AND))
+        def get(self, request: Request, application_id: str, model_id: str):
+            return result.success(
+                ApplicationSerializer.Operate(
+                    data={'application_id': application_id,
+                          'user_id': request.user.id}).get_model_params_form(model_id))
+
+    class FunctionLib(APIView):
+        authentication_classes = [TokenAuth]
+
+        @action(methods=["GET"], detail=False)
+        @swagger_auto_schema(operation_summary="获取函数库列表",
+                             operation_id="获取函数库列表",
+                             tags=["应用"])
+        @has_permissions(ViewPermission(
+            [RoleConstants.ADMIN, RoleConstants.USER],
+            [lambda r, keywords: Permission(group=Group.APPLICATION, operate=Operate.USE,
+                                            dynamic_tag=keywords.get('application_id'))],
+            compare=CompareConstants.AND))
+        def get(self, request: Request, application_id: str):
+            return result.success(
+                ApplicationSerializer.Operate(
+                    data={'application_id': application_id,
+                          'user_id': request.user.id}).list_function_lib())
+
+        class Operate(APIView):
+            authentication_classes = [TokenAuth]
+
+            @action(methods=["GET"], detail=False)
+            @swagger_auto_schema(operation_summary="获取函数库列表",
+                                 operation_id="获取函数库列表",
+                                 tags=["应用"],
+                                 )
+            @has_permissions(ViewPermission(
+                [RoleConstants.ADMIN, RoleConstants.USER],
+                [lambda r, keywords: Permission(group=Group.APPLICATION, operate=Operate.USE,
+                                                dynamic_tag=keywords.get('application_id'))],
+                compare=CompareConstants.AND))
+            def get(self, request: Request, application_id: str, function_lib_id: str):
+                return result.success(
+                    ApplicationSerializer.Operate(
+                        data={'application_id': application_id,
+                              'user_id': request.user.id}).get_function_lib(function_lib_id))
 
     class Profile(APIView):
         authentication_classes = [TokenAuth]
@@ -478,3 +534,35 @@ class Application(APIView):
                 ApplicationSerializer.Query(
                     data={**query_params_to_single_dict(request.query_params), 'user_id': request.user.id}).page(
                     current_page, page_size))
+
+    class SpeechToText(APIView):
+        authentication_classes = [TokenAuth]
+
+        @action(methods=['POST'], detail=False)
+        @has_permissions(ViewPermission([RoleConstants.ADMIN, RoleConstants.USER, RoleConstants.APPLICATION_ACCESS_TOKEN],
+                                        [lambda r, keywords: Permission(group=Group.APPLICATION,
+                                                                        operate=Operate.USE,
+                                                                        dynamic_tag=keywords.get(
+                                                                            'application_id'))],
+                                        compare=CompareConstants.AND))
+        def post(self, request: Request, application_id: str):
+            return result.success(
+                ApplicationSerializer.Operate(data={'application_id': application_id, 'user_id': request.user.id})
+                .speech_to_text(request.FILES.getlist('file')[0]))
+
+    class TextToSpeech(APIView):
+        authentication_classes = [TokenAuth]
+
+        @action(methods=['POST'], detail=False)
+        @has_permissions(ViewPermission([RoleConstants.ADMIN, RoleConstants.USER, RoleConstants.APPLICATION_ACCESS_TOKEN],
+                                        [lambda r, keywords: Permission(group=Group.APPLICATION,
+                                                                        operate=Operate.USE,
+                                                                        dynamic_tag=keywords.get(
+                                                                            'application_id'))],
+                                        compare=CompareConstants.AND))
+        def post(self, request: Request, application_id: str):
+            byte_data = ApplicationSerializer.Operate(
+                data={'application_id': application_id, 'user_id': request.user.id}).text_to_speech(
+                request.data.get('text'))
+            return HttpResponse(byte_data, status=200, headers={'Content-Type': 'audio/mp3',
+                                                              'Content-Disposition': 'attachment; filename="abc.mp3"'})

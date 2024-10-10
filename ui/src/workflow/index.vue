@@ -89,6 +89,7 @@ onMounted(() => {
         lf.value.deleteEdge(id)
       })
     })
+
     setTimeout(() => {
       lf.value?.fitView()
     }, 500)
@@ -150,5 +151,8 @@ defineExpose({
   bottom: 24px;
   left: 24px;
   z-index: 2;
+}
+.lf-drag-able {
+  cursor: pointer;
 }
 </style>

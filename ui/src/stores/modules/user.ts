@@ -1,10 +1,11 @@
 import { defineStore } from 'pinia'
 import { type Ref } from 'vue'
 import type { User } from '@/api/type/user'
-
+import { cloneDeep } from 'lodash'
 import UserApi from '@/api/user'
 import ThemeApi from '@/api/theme'
 import { useElementPlusTheme } from 'use-element-plus-theme'
+import { defaultPlatformSetting } from '@/utils/theme'
 
 export interface userStateTypes {
   userType: number // 1 系统操作者 2 对话用户
@@ -38,7 +39,7 @@ const useUserStore = defineStore({
     setTheme(data: any) {
       const { changeTheme } = useElementPlusTheme(this.themeInfo?.theme)
       changeTheme(data?.['theme'])
-      this.themeInfo = data
+      this.themeInfo = cloneDeep(data)
     },
     isExpire() {
       return this.isXPack && !this.XPACK_LICENSE_IS_VALID
@@ -90,6 +91,10 @@ const useUserStore = defineStore({
 
             if (this.isEnterprise()) {
               await this.theme()
+            } else {
+              this.themeInfo = {
+                ...defaultPlatformSetting
+              }
             }
             resolve(ok)
           })
@@ -102,7 +107,7 @@ const useUserStore = defineStore({
     async theme(loading?: Ref<boolean>) {
       return await ThemeApi.getThemeInfo(loading).then((ok) => {
         this.setTheme(ok.data)
-        window.document.title = this.themeInfo['title'] || 'MaxKB'
+        // window.document.title = this.themeInfo['title'] || 'MaxKB'
         // const link = document.querySelector('link[rel="icon"]') as any
         // if (link) {
         //   link['href'] = this.themeInfo['icon'] || '/favicon.ico'

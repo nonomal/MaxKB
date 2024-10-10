@@ -40,7 +40,10 @@ instance.interceptors.response.use(
   (response: any) => {
     if (response.data) {
       if (response.data.code !== 200 && !(response.data instanceof Blob)) {
-        if (!response.config.url.includes('/valid')) {
+        if (
+          !response.config.url.includes('/valid') &&
+          !response.config.url.includes('/function_lib/debug')
+        ) {
           MsgError(response.data.message)
           return Promise.reject(response.data)
         }
@@ -235,6 +238,23 @@ export const exportExcel: (
       return true
     })
     .catch((e) => {})
+}
+
+
+export const download: (
+  url: string,
+  method: string,
+  data?: any,
+  params?: any,
+  loading?: NProgress | Ref<boolean>
+) => Promise<any> = (
+  url: string,
+  method: string,
+  data?: any,
+  params?: any,
+  loading?: NProgress | Ref<boolean>
+) => {
+  return promise(request({ url: url, method: method, data, params, responseType: 'blob' }), loading)
 }
 
 /**
