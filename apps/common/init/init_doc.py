@@ -15,6 +15,7 @@ from rest_framework import permissions
 
 from common.auth import AnonymousAuthentication
 from smartdoc.const import CONFIG
+from django.utils.translation import gettext_lazy as _
 
 
 def init_app_doc(application_urlpatterns):
@@ -22,7 +23,7 @@ def init_app_doc(application_urlpatterns):
         openapi.Info(
             title="Python API",
             default_version='v1',
-            description="智能客服平台",
+            description=_('Intelligent customer service platform'),
         ),
         public=True,
         permission_classes=[permissions.AllowAny],
@@ -41,7 +42,7 @@ def init_chat_doc(application_urlpatterns, patterns):
         openapi.Info(
             title="Python API",
             default_version='/chat',
-            description="智能客服平台",
+            description=_('Intelligent customer service platform'),
         ),
         public=True,
         permission_classes=[permissions.AllowAny],
@@ -77,11 +78,11 @@ def get_call(application_urlpatterns, patterns, params, func):
 
 
 init_list = [(init_app_doc, {'valid': lambda: CONFIG.get('DOC_PASSWORD') is not None and encrypt(
-    CONFIG.get('DOC_PASSWORD')) == '34558ab2851c350e8ff578585135b8c9',
+    CONFIG.get('DOC_PASSWORD')) == 'd4fc097197b4b90a122b92cbd5bbe867',
                              'get_call': get_call,
                              'get_params': lambda application_urlpatterns, patterns: (application_urlpatterns,)}),
              (init_chat_doc, {'valid': lambda: CONFIG.get('DOC_PASSWORD') is not None and encrypt(
-                 CONFIG.get('DOC_PASSWORD')) == '34558ab2851c350e8ff578585135b8c9' or True, 'get_call': get_call,
+                 CONFIG.get('DOC_PASSWORD')) == 'd4fc097197b4b90a122b92cbd5bbe867' or True, 'get_call': get_call,
                               'get_params': lambda application_urlpatterns, patterns: (
                                   application_urlpatterns, patterns)})]
 

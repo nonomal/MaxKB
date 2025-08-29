@@ -1,10 +1,17 @@
 <template>
-  <el-dialog title="选择知识库" v-model="dialogVisible" width="600" class="select-dataset-dialog">
+  <el-dialog
+    :title="$t('views.log.selectDataset')"
+    v-model="dialogVisible"
+    width="600"
+    class="select-dataset-dialog"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+  >
     <template #header="{ titleId, titleClass }">
       <div class="my-header flex">
-        <h4 :id="titleId" :class="titleClass">选择知识库</h4>
+        <h4 :id="titleId" :class="titleClass">{{ $t('views.log.selectDataset') }}</h4>
         <el-button link class="ml-16" @click="refresh">
-          <el-icon class="mr-4"><Refresh /></el-icon>刷新
+          <el-icon class="mr-4"><Refresh /></el-icon>{{ $t('common.refresh') }}
         </el-button>
       </div>
     </template>
@@ -14,11 +21,7 @@
           <div class="p-16">
             <el-row :gutter="12" v-loading="loading">
               <el-col :span="12" v-for="(item, index) in datasetList" :key="index" class="mb-16">
-                <el-card
-                  shadow="never"
-                  class="mb-8"
-                  :class="item.id === selectDataset ? 'active' : ''"
-                >
+                <el-card shadow="never" :class="item.id === selectDataset ? 'active' : ''">
                   <el-radio :value="item.id" size="large">
                     <div class="flex align-center">
                       <AppAvatar
@@ -37,7 +40,16 @@
                       >
                         <img src="@/assets/icon_web.svg" style="width: 58%" alt="" />
                       </AppAvatar>
-                      <span class="ellipsis">
+                      <AppAvatar
+                        v-if="item?.type === '2'"
+                        class="mr-8 avatar-purple"
+                        shape="square"
+                        :size="32"
+                        style="background: none"
+                      >
+                        <img src="@/assets/logo_lark.svg" style="width: 100%" alt="" />
+                      </AppAvatar>
+                      <span class="ellipsis" :title="item.name">
                         {{ item.name }}
                       </span>
                     </div>
@@ -51,9 +63,9 @@
     </div>
     <template #footer>
       <span class="dialog-footer">
-        <el-button @click.prevent="dialogVisible = false"> 取消 </el-button>
+        <el-button @click.prevent="dialogVisible = false"> {{ $t('common.cancel') }} </el-button>
         <el-button type="primary" @click="submitHandle" :disabled="!selectDataset || loading">
-          确认
+          {{ $t('common.confirm') }}
         </el-button>
       </span>
     </template>
@@ -114,7 +126,7 @@ const refresh = () => {
 
 defineExpose({ open })
 </script>
-<style lang="scss" scope>
+<style lang="scss">
 .select-dataset-dialog {
   padding: 0;
   .el-dialog__header {

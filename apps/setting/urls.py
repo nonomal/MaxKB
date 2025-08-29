@@ -1,3 +1,5 @@
+import os
+
 from django.urls import path
 
 from . import views
@@ -12,9 +14,13 @@ urlpatterns = [
     path('provider/model_type_list', views.Provide.ModelTypeList.as_view(), name="provider/model_type_list"),
     path('provider/model_list', views.Provide.ModelList.as_view(),
          name="provider/model_name_list"),
+    path('provider/model_params_form', views.Provide.ModelParamsForm.as_view(),
+         name="provider/model_params_form"),
     path('provider/model_form', views.Provide.ModelForm.as_view(),
          name="provider/model_form"),
     path('model', views.Model.as_view(), name='model'),
+    path('model/<str:model_id>/model_params_form', views.Model.ModelParamsForm.as_view(),
+         name='model/model_params_form'),
     path('model/<str:model_id>', views.Model.Operate.as_view(), name='model/operate'),
     path('model/<str:model_id>/pause_download', views.Model.PauseDownload.as_view(), name='model/operate'),
     path('model/<str:model_id>/meta', views.Model.ModelMeta.as_view(), name='model/operate/meta'),
@@ -22,3 +28,12 @@ urlpatterns = [
     path('valid/<str:valid_type>/<int:valid_count>', views.Valid.as_view())
 
 ]
+if os.environ.get('SERVER_NAME', 'web') == 'local_model':
+    urlpatterns += [
+        path('model/<str:model_id>/embed_documents', views.ModelApply.EmbedDocuments.as_view(),
+             name='model/embed_documents'),
+        path('model/<str:model_id>/embed_query', views.ModelApply.EmbedQuery.as_view(),
+             name='model/embed_query'),
+        path('model/<str:model_id>/compress_documents', views.ModelApply.CompressDocuments.as_view(),
+             name='model/embed_query'),
+    ]

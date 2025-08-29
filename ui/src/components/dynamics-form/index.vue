@@ -33,7 +33,7 @@
 import type { Dict } from '@/api/type/common'
 import FormItem from '@/components/dynamics-form/FormItem.vue'
 import type { FormField } from '@/components/dynamics-form/type'
-import { ref, onMounted, watch, type Ref } from 'vue'
+import { ref, onBeforeMount, watch, type Ref } from 'vue'
 import type { FormInstance } from 'element-plus'
 import triggerApi from '@/api/provider'
 import type Result from '@/request/Result'
@@ -146,14 +146,17 @@ const initDefaultData = (formField: FormField) => {
     formField.default_value &&
     (formValue.value[formField.field] === undefined ||
       formValue.value[formField.field] === null ||
-      !formValue.value[formField.field])
+      !formValue.value[formField.field]) &&
+    formValue.value[formField.field] != false
   ) {
-    formValue.value[formField.field] = formField.default_value
+    if (formField.show_default_value === true) {
+      formValue.value[formField.field] = formField.default_value
+    }
   }
 }
 
-onMounted(() => {
-  render(props.render_data, {})
+onBeforeMount(() => {
+  render(props.render_data, props.modelValue)
 })
 
 const render = (
@@ -171,8 +174,37 @@ const render = (
       formFieldList.value = ok.data
     })
   }
-  if (data) {
-    formValue.value = data
+  const form_data = data ? data : {}
+  if (form_data) {
+    const value = formFieldList.value
+      .map((item) => {
+        if (form_data[item.field] !== undefined) {
+          if (item.value_field && item.option_list && item.option_list.length > 0) {
+            const value_field = item.value_field
+            const find = item.option_list?.find((i) => {
+              if (typeof form_data[item.field] === 'string') {
+                return i[value_field] === form_data[item.field]
+              } else {
+                return form_data[item.field].indexOf([value_field]) === -1
+              }
+            })
+            if (find) {
+              return { [item.field]: form_data[item.field] }
+            }
+            if (item.show_default_value === true || item.show_default_value === undefined) {
+              return { [item.field]: item.default_value }
+            }
+          } else {
+            return { [item.field]: form_data[item.field] }
+          }
+        }
+        if (item.show_default_value === true || item.show_default_value === undefined) {
+          return { [item.field]: item.default_value }
+        }
+        return {}
+      })
+      .reduce((x, y) => ({ ...x, ...y }), {})
+    formValue.value = _.cloneDeep(value)
   }
 }
 /**
@@ -193,4 +225,4 @@ defineExpose({
   ruleFormRef
 })
 </script>
-<style lang="scss" scope></style>
+<style lang="scss" scoped></style>

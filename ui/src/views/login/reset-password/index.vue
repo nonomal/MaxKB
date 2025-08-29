@@ -1,7 +1,11 @@
 <template>
-  <login-layout>
-    <LoginContainer subTitle="欢迎使用 MaxKB 智能知识库">
-      <h2 class="mb-24">修改密码</h2>
+  <login-layout v-if="!loading" v-loading="loading || sendLoading">
+    <LoginContainer
+      :subTitle="
+        user.themeInfo?.slogan ? user.themeInfo?.slogan : $t('views.system.theme.defaultSlogan')
+      "
+    >
+      <h2 class="mb-24">{{ $t('views.login.resetPassword') }}</h2>
       <el-form
         class="reset-password-form"
         ref="resetPasswordFormRef"
@@ -15,7 +19,7 @@
               size="large"
               class="input-item"
               v-model="resetPasswordForm.password"
-              placeholder="请输入密码"
+              :placeholder="$t('views.user.userForm.form.password.placeholder')"
               show-password
             >
             </el-input>
@@ -28,7 +32,7 @@
               size="large"
               class="input-item"
               v-model="resetPasswordForm.re_password"
-              placeholder="请输入确认密码"
+              :placeholder="$t('views.user.userForm.form.re_password.placeholder')"
               show-password
             >
             </el-input>
@@ -36,8 +40,8 @@
         </div>
       </el-form>
       <el-button size="large" type="primary" class="w-full" @click="resetPassword"
-        >确认修改</el-button
-      >
+        >{{ $t('common.confirm') }}
+      </el-button>
       <div class="operate-container mt-12">
         <el-button
           size="large"
@@ -47,19 +51,23 @@
           type="primary"
           icon="ArrowLeft"
         >
-          返回登录
+          {{ $t('views.login.buttons.backLogin') }}
         </el-button>
       </div>
     </LoginContainer>
   </login-layout>
 </template>
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeMount } from 'vue'
 import type { ResetPasswordRequest } from '@/api/type/user'
 import { useRouter, useRoute } from 'vue-router'
 import { MsgSuccess } from '@/utils/message'
 import type { FormInstance, FormRules } from 'element-plus'
 import UserApi from '@/api/user'
+import { t } from '@/locales'
+import useStore from '@/stores'
+
+const { user } = useStore()
 const router = useRouter()
 const route = useRoute()
 const {
@@ -80,37 +88,42 @@ onMounted(() => {
     router.push('forgot_password')
   }
 })
-
+onBeforeMount(() => {
+  loading.value = true
+  user.asyncGetProfile().then(() => {
+    loading.value = false
+  })
+})
 const rules = ref<FormRules<ResetPasswordRequest>>({
   password: [
     {
       required: true,
-      message: '请输入密码',
+      message: t('views.user.userForm.form.re_password.requiredMessage'),
       trigger: 'blur'
     },
     {
       min: 6,
       max: 20,
-      message: '长度在 6 到 20 个字符',
+      message: t('views.user.userForm.form.password.lengthMessage'),
       trigger: 'blur'
     }
   ],
   re_password: [
     {
       required: true,
-      message: '请输入确认密码',
+      message: t('views.user.userForm.form.re_password.requiredMessage'),
       trigger: 'blur'
     },
     {
       min: 6,
       max: 20,
-      message: '长度在 6 到 20 个字符',
+      message: t('views.user.userForm.form.password.lengthMessage'),
       trigger: 'blur'
     },
     {
       validator: (rule, value, callback) => {
         if (resetPasswordForm.value.password != resetPasswordForm.value.re_password) {
-          callback(new Error('密码不一致'))
+          callback(new Error(t('views.user.userForm.form.re_password.validatorMessage')))
         } else {
           callback()
         }
@@ -121,14 +134,15 @@ const rules = ref<FormRules<ResetPasswordRequest>>({
 })
 const resetPasswordFormRef = ref<FormInstance>()
 const loading = ref<boolean>(false)
+const sendLoading = ref<boolean>(false)
 const resetPassword = () => {
   resetPasswordFormRef.value
     ?.validate()
-    .then(() => UserApi.resetPassword(resetPasswordForm.value, loading))
+    .then(() => UserApi.resetPassword(resetPasswordForm.value, sendLoading))
     .then(() => {
-      MsgSuccess('修改密码成功')
+      MsgSuccess(t('common.modifySuccess'))
       router.push({ name: 'login' })
     })
 }
 </script>
-<style lang="scss" scope></style>
+<style lang="scss" scoped></style>

@@ -5,13 +5,14 @@
     width="80%"
     class="paragraph-dialog"
     destroy-on-close
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
   >
     <el-row v-loading="loading">
       <el-col :span="18">
         <el-scrollbar height="500" wrap-class="paragraph-scrollbar">
           <div class="p-24" style="padding-bottom: 8px">
-            <div class="flex-between mb-16">
-              <div class="bold title align-center">分段内容</div>
+            <div style="position: absolute; right: 20px; top: 20px; ">
               <el-button text @click="isEdit = true" v-if="problemId && !isEdit">
                 <el-icon><EditPen /></el-icon>
               </el-button>
@@ -21,13 +22,13 @@
           </div>
         </el-scrollbar>
         <div class="text-right p-24 pt-0" v-if="problemId && isEdit">
-          <el-button @click.prevent="cancelEdit"> 取消 </el-button>
+          <el-button @click.prevent="cancelEdit"> {{$t('common.cancel')}} </el-button>
           <el-button type="primary" :disabled="loading" @click="handleDebounceClick">
-            保存
+            {{$t('common.save')}}
           </el-button>
         </div>
       </el-col>
-      <el-col :span="6" class="border-l" style="width: 300px;">
+      <el-col :span="6" class="border-l" style="width: 300px">
         <!-- 关联问题 -->
         <ProblemComponent
           :problemId="problemId"
@@ -39,9 +40,9 @@
     </el-row>
     <template #footer v-if="!problemId">
       <span class="dialog-footer">
-        <el-button @click.prevent="dialogVisible = false"> 取消 </el-button>
+        <el-button @click.prevent="dialogVisible = false"> {{$t('common.cancel')}} </el-button>
         <el-button :disabled="loading" type="primary" @click="handleDebounceClick">
-          提交
+          {{$t('common.submit')}}
         </el-button>
       </span>
     </template>
@@ -149,6 +150,4 @@ const handleDebounceClick = debounce(() => {
 
 defineExpose({ open })
 </script>
-<style lang="scss" scope>
-
-</style>
+<style lang="scss" scoped></style>

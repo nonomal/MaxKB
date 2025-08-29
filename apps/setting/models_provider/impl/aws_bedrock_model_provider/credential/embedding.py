@@ -1,64 +1,53 @@
-import json
+import traceback
 from typing import Dict
 
-from tencentcloud.common import credential
-from tencentcloud.common.profile.client_profile import ClientProfile
-from tencentcloud.common.profile.http_profile import HttpProfile
-from tencentcloud.hunyuan.v20230901 import hunyuan_client, models
+from django.utils.translation import gettext as _
 
 from common import forms
 from common.exception.app_exception import AppApiException
 from common.forms import BaseForm
 from setting.models_provider.base_model_provider import BaseModelCredential, ValidCode
+from setting.models_provider.impl.aws_bedrock_model_provider.model.embedding import BedrockEmbeddingModel
 
 
-class TencentEmbeddingCredential(BaseForm, BaseModelCredential):
-    @classmethod
-    def _validate_model_type(cls, model_type: str, provider) -> bool:
+class BedrockEmbeddingCredential(BaseForm, BaseModelCredential):
+
+    def is_valid(self, model_type: str, model_name, model_credential: Dict[str, object], model_params, provider,
+                 raise_exception=False):
         model_type_list = provider.get_model_type_list()
         if not any(mt.get('value') == model_type for mt in model_type_list):
-            raise AppApiException(ValidCode.valid_error.value, f'{model_type} 模型类型不支持')
-        return True
-
-    @classmethod
-    def _validate_credential(cls, model_credential: Dict[str, object]) -> credential.Credential:
-        for key in ['SecretId', 'SecretKey']:
-            if key not in model_credential:
-                raise AppApiException(ValidCode.valid_error.value, f'{key} 字段为必填字段')
-        return credential.Credential(model_credential['SecretId'], model_credential['SecretKey'])
-
-    @classmethod
-    def _test_credentials(cls, client, model_name: str):
-        req = models.GetEmbeddingRequest()
-        params = {
-            "Model": model_name,
-            "Input": "测试"
-        }
-        req.from_json_string(json.dumps(params))
-        try:
-            res = client.GetEmbedding(req)
-            print(res.to_json_string())
-        except Exception as e:
-            raise AppApiException(ValidCode.valid_error.value, f'校验失败,请检查参数是否正确: {str(e)}')
-
-    def is_valid(self, model_type: str, model_name, model_credential: Dict[str, object], provider,
-                 raise_exception=True) -> bool:
-        try:
-            self._validate_model_type(model_type, provider)
-            cred = self._validate_credential(model_credential)
-            httpProfile = HttpProfile(endpoint="hunyuan.tencentcloudapi.com")
-            clientProfile = ClientProfile(httpProfile=httpProfile)
-            client = hunyuan_client.HunyuanClient(cred, "", clientProfile)
-            self._test_credentials(client, model_name)
-            return True
-        except AppApiException as e:
             if raise_exception:
-                raise e
+                raise AppApiException(ValidCode.valid_error.value,
+                                      _('{model_type} Model type is not supported').format(model_type=model_type))
             return False
 
-    def encryption_dict(self, model: Dict[str, object]) -> Dict[str, object]:
-        encrypted_secret_key = super().encryption(model.get('SecretKey', ''))
-        return {**model, 'SecretKey': encrypted_secret_key}
+        required_keys = ['region_name', 'access_key_id', 'secret_access_key']
+        if not all(key in model_credential for key in required_keys):
+            if raise_exception:
+                raise AppApiException(ValidCode.valid_error.value,
+                                      _('The following fields are required: {keys}').format(
+                                          keys=", ".join(required_keys)))
+            return False
 
-    SecretId = forms.PasswordInputField('SecretId', required=True)
-    SecretKey = forms.PasswordInputField('SecretKey', required=True)
+        try:
+            model: BedrockEmbeddingModel = provider.get_model(model_type, model_name, model_credential)
+            aa = model.embed_query(_('Hello'))
+            print(aa)
+        except AppApiException:
+            raise
+        except Exception as e:
+            traceback.print_exc()
+            if raise_exception:
+                raise AppApiException(ValidCode.valid_error.value,
+                                      _('Verification failed, please check whether the parameters are correct: {error}').format(
+                                          error=str(e)))
+            return False
+
+        return True
+
+    def encryption_dict(self, model: Dict[str, object]):
+        return {**model, 'secret_access_key': super().encryption(model.get('secret_access_key', ''))}
+
+    region_name = forms.TextInputField('Region Name', required=True)
+    access_key_id = forms.TextInputField('Access Key ID', required=True)
+    secret_access_key = forms.PasswordInputField('Secret Access Key', required=True)

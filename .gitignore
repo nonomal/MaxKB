@@ -178,6 +178,10 @@ ui/node_modules
 ui/dist
 apps/static
 models/
+apps/xpack
+!apps/**/models/
 data
 .dev
 poetry.lock
+apps/setting/models_provider/impl/*/icon/
+tmp/

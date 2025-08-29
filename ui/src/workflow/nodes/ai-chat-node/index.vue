@@ -1,157 +1,159 @@
 <template>
   <NodeContainer :nodeModel="nodeModel">
-    <h5 class="title-decoration-1 mb-8">节点设置</h5>
+    <h5 class="title-decoration-1 mb-8">{{ $t('views.applicationWorkflow.nodeSetting') }}</h5>
     <el-card shadow="never" class="card-never" style="--el-card-padding: 12px">
       <el-form
         @submit.prevent
-        @mousemove.stop
-        @mousedown.stop
-        @keydown.stop
-        @click.stop
         :model="chat_data"
         label-position="top"
         require-asterisk-position="right"
-        class="mb-24"
         label-width="auto"
         ref="aiChatNodeFormRef"
+        hide-required-asterisk
       >
         <el-form-item
-          label="AI 模型"
+          :label="$t('views.application.applicationForm.form.aiModel.label')"
           prop="model_id"
           :rules="{
             required: true,
-            message: '请选择 AI 模型',
+            message: $t('views.application.applicationForm.form.aiModel.placeholder'),
             trigger: 'change'
           }"
         >
-          <el-select
+          <template #label>
+            <div class="flex-between w-full">
+              <div>
+                <span
+                  >{{ $t('views.application.applicationForm.form.aiModel.label')
+                  }}<span class="danger">*</span></span
+                >
+              </div>
+
+              <el-button
+                :disabled="!chat_data.model_id"
+                type="primary"
+                link
+                @click="openAIParamSettingDialog(chat_data.model_id)"
+                @refreshForm="refreshParam"
+              >
+                <el-icon><Setting /></el-icon>
+              </el-button>
+            </div>
+          </template>
+          <ModelSelect
+            @change="model_change"
             @wheel="wheel"
-            @keydown="isKeyDown = true"
-            @keyup="isKeyDown = false"
             :teleported="false"
             v-model="chat_data.model_id"
-            placeholder="请选择 AI 模型"
-            class="w-full"
-            popper-class="select-model"
-            :clearable="true"
-          >
-            <el-option-group
-              v-for="(value, label) in modelOptions"
-              :key="value"
-              :label="relatedObject(providerOptions, label, 'provider')?.name"
-            >
-              <el-option
-                v-for="item in value.filter((v: any) => v.status === 'SUCCESS')"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-                class="flex-between"
-              >
-                <div class="flex align-center">
-                  <span
-                    v-html="relatedObject(providerOptions, label, 'provider')?.icon"
-                    class="model-icon mr-8"
-                  ></span>
-                  <span>{{ item.name }}</span>
-                  <el-tag v-if="item.permission_type === 'PUBLIC'" type="info" class="info-tag ml-8"
-                    >公用
-                  </el-tag>
-                </div>
-                <el-icon class="check-icon" v-if="item.id === chat_data.model_id"
-                  ><Check
-                /></el-icon>
-              </el-option>
-              <!-- 不可用 -->
-              <el-option
-                v-for="item in value.filter((v: any) => v.status !== 'SUCCESS')"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-                class="flex-between"
-                disabled
-              >
-                <div class="flex">
-                  <span
-                    v-html="relatedObject(providerOptions, label, 'provider')?.icon"
-                    class="model-icon mr-8"
-                  ></span>
-                  <span>{{ item.name }}</span>
-                  <span class="danger">（不可用）</span>
-                </div>
-                <el-icon class="check-icon" v-if="item.id === chat_data.model_id"
-                  ><Check
-                /></el-icon>
-              </el-option>
-            </el-option-group>
-            <template #footer>
-              <div class="w-full text-left cursor" @click="openCreateModel()">
-                <el-button type="primary" link>
-                  <el-icon class="mr-4"><Plus /></el-icon>
-                  添加模型
-                </el-button>
-              </div>
-            </template>
-          </el-select>
+            :placeholder="$t('views.application.applicationForm.form.aiModel.placeholder')"
+            :options="modelOptions"
+            @submitModel="getModel"
+            showFooter
+            :model-type="'LLM'"
+          ></ModelSelect>
         </el-form-item>
-        <el-form-item label="角色设定">
-          <el-input
+
+        <el-form-item :label="$t('views.application.applicationForm.form.roleSettings.label')">
+          <MdEditorMagnify
+            :title="$t('views.application.applicationForm.form.roleSettings.label')"
             v-model="chat_data.system"
-            placeholder="角色设定"
-            type="textarea"
-            :autosize="{ minRows: 1, maxRows: 3 }"
+            style="height: 100px"
+            @submitDialog="submitSystemDialog"
+            :placeholder="$t('views.application.applicationForm.form.roleSettings.label')"
           />
         </el-form-item>
-        <el-form-item label="提示词" prop="prompt">
+        <el-form-item
+          :label="$t('views.application.applicationForm.form.prompt.label')"
+          prop="prompt"
+          :rules="{
+            required: true,
+            message: $t('views.application.applicationForm.form.prompt.requiredMessage'),
+            trigger: 'blur'
+          }"
+        >
           <template #label>
             <div class="flex align-center">
               <div class="mr-4">
-                <span>提示词<span class="danger">*</span></span>
+                <span
+                  >{{ $t('views.application.applicationForm.form.prompt.label')
+                  }}<span class="danger">*</span></span
+                >
               </div>
               <el-tooltip effect="dark" placement="right" popper-class="max-w-200">
                 <template #content
-                  >通过调整提示词内容，可以引导大模型聊天方向，该提示词会被固定在上下文的开头，可以使用变量。</template
-                >
+                  >{{ $t('views.application.applicationForm.form.prompt.tooltip') }}
+                </template>
                 <AppIcon iconName="app-warning" class="app-warning-icon"></AppIcon>
               </el-tooltip>
             </div>
           </template>
-          <MdEditor
+          <MdEditorMagnify
             @wheel="wheel"
-            @keydown="isKeyDown = true"
-            @keyup="isKeyDown = false"
-            class="reply-node-editor"
-            style="height: 150px"
+            :title="$t('views.application.applicationForm.form.prompt.label')"
             v-model="chat_data.prompt"
-            :preview="false"
-            :toolbars="[]"
-            :footers="footers"
-          >
-            <template #defFooters>
-              <el-button text type="info" @click="openDialog">
-                <AppIcon iconName="app-magnify" style="font-size: 16px"></AppIcon>
-              </el-button>
-            </template>
-          </MdEditor>
+            style="height: 150px"
+            @submitDialog="submitDialog"
+          />
         </el-form-item>
-        <el-form-item label="历史聊天记录">
+        <el-form-item :label="$t('views.application.applicationForm.form.historyRecord.label')">
+          <template #label>
+            <div class="flex-between">
+              <div>{{ $t('views.application.applicationForm.form.historyRecord.label') }}</div>
+              <el-select v-model="chat_data.dialogue_type" type="small" style="width: 100px">
+                <el-option :label="$t('views.applicationWorkflow.node')" value="NODE" />
+                <el-option :label="$t('views.applicationWorkflow.workflow')" value="WORKFLOW" />
+              </el-select>
+            </div>
+          </template>
           <el-input-number
             v-model="chat_data.dialogue_number"
             :min="0"
             :value-on-clear="0"
             controls-position="right"
             class="w-full"
+            :step="1"
+            :step-strictly="true"
           />
         </el-form-item>
-        <el-form-item label="返回内容" @click.prevent>
+
+        <div class="flex-between mb-16">
+          <div class="lighter">{{ $t('views.applicationWorkflow.nodes.mcpNode.tool') }}</div>
+          <el-button type="primary" link @click="openMcpServersDialog" @refreshForm="refreshParam">
+            <el-icon><Setting /></el-icon>
+          </el-button>
+        </div>
+
+        <el-form-item @click.prevent>
+          <template #label>
+            <div class="flex-between w-full">
+              <div>
+                <span>{{
+                  $t('views.application.applicationForm.form.reasoningContent.label')
+                }}</span>
+              </div>
+              <el-button
+                type="primary"
+                link
+                @click="openReasoningParamSettingDialog"
+                @refreshForm="refreshParam"
+              >
+                <el-icon><Setting /></el-icon>
+              </el-button>
+            </div>
+          </template>
+          <el-switch size="small" v-model="chat_data.model_setting.reasoning_content_enable" />
+        </el-form-item>
+        <el-form-item @click.prevent>
           <template #label>
             <div class="flex align-center">
               <div class="mr-4">
-                <span>返回内容<span class="danger">*</span></span>
+                <span>{{
+                  $t('views.applicationWorkflow.nodes.aiChatNode.returnContent.label')
+                }}</span>
               </div>
               <el-tooltip effect="dark" placement="right" popper-class="max-w-200">
                 <template #content>
-                  关闭后该节点的内容则不输出给用户。
-                  如果你想让用户看到该节点的输出内容，请打开开关。
+                  {{ $t('views.applicationWorkflow.nodes.aiChatNode.returnContent.tooltip') }}
                 </template>
                 <AppIcon iconName="app-warning" class="app-warning-icon"></AppIcon>
               </el-tooltip>
@@ -161,83 +163,96 @@
         </el-form-item>
       </el-form>
     </el-card>
-    <!-- 回复内容弹出层 -->
-    <el-dialog v-model="dialogVisible" title="提示词" append-to-body>
-      <MdEditor v-model="cloneContent" :preview="false" :toolbars="[]" :footers="[]"> </MdEditor>
-      <template #footer>
-        <div class="dialog-footer mt-24">
-          <el-button type="primary" @click="submitDialog"> 确认 </el-button>
-        </div>
-      </template>
-    </el-dialog>
-    <!-- 添加模版 -->
-    <CreateModelDialog
-      ref="createModelRef"
-      @submit="getModel"
-      @change="openCreateModel($event)"
-    ></CreateModelDialog>
-    <SelectProviderDialog ref="selectProviderRef" @change="openCreateModel($event)" />
+
+    <AIModeParamSettingDialog ref="AIModeParamSettingDialogRef" @refresh="refreshParam" />
+    <ReasoningParamSettingDialog
+      ref="ReasoningParamSettingDialogRef"
+      @refresh="submitReasoningDialog"
+    />
+    <McpServersDialog ref="mcpServersDialogRef" @refresh="submitMcpServersDialog" />
   </NodeContainer>
 </template>
 <script setup lang="ts">
-import { set, groupBy } from 'lodash'
+import { cloneDeep, set, groupBy } from 'lodash'
 import { app } from '@/main'
 import NodeContainer from '@/workflow/common/NodeContainer.vue'
-import CreateModelDialog from '@/views/template/component/CreateModelDialog.vue'
-import SelectProviderDialog from '@/views/template/component/SelectProviderDialog.vue'
 import type { FormInstance } from 'element-plus'
 import { ref, computed, onMounted } from 'vue'
 import applicationApi from '@/api/application'
 import useStore from '@/stores'
-import { relatedObject } from '@/utils/utils'
-import type { Provider } from '@/api/type/model'
 import { isLastNode } from '@/workflow/common/data'
-
+import AIModeParamSettingDialog from '@/views/application/component/AIModeParamSettingDialog.vue'
+import { t } from '@/locales'
+import ReasoningParamSettingDialog from '@/views/application/component/ReasoningParamSettingDialog.vue'
+import McpServersDialog from '@/views/application/component/McpServersDialog.vue'
 const { model } = useStore()
-const isKeyDown = ref(false)
+
 const wheel = (e: any) => {
-  if (isKeyDown.value) {
+  if (e.ctrlKey === true) {
     e.preventDefault()
+    return true
   } else {
     e.stopPropagation()
     return true
   }
 }
-const dialogVisible = ref(false)
-const cloneContent = ref('')
-const footers: any = [null, '=', 0]
-function openDialog() {
-  cloneContent.value = chat_data.value.prompt
-  dialogVisible.value = true
+
+function submitSystemDialog(val: string) {
+  set(props.nodeModel.properties.node_data, 'system', val)
 }
-function submitDialog() {
-  set(props.nodeModel.properties.node_data, 'prompt', cloneContent.value)
-  dialogVisible.value = false
+
+function submitDialog(val: string) {
+  set(props.nodeModel.properties.node_data, 'prompt', val)
+}
+
+const model_change = (model_id?: string) => {
+  if (model_id) {
+    AIModeParamSettingDialogRef.value?.reset_default(model_id, id)
+  } else {
+    refreshParam({})
+  }
 }
 const {
   params: { id }
 } = app.config.globalProperties.$route as any
 
 // @ts-ignore
-const defaultPrompt = `已知信息：
-{{知识库检索.data}}
-问题：
-{{开始.question}}`
+const defaultPrompt = `${t('views.applicationWorkflow.nodes.aiChatNode.defaultPrompt')}：
+{{${t('views.applicationWorkflow.nodes.searchDatasetNode.label')}.data}}
+${t('views.problem.title')}：
+{{${t('views.applicationWorkflow.nodes.startNode.label')}.question}}`
+
 const form = {
   model_id: '',
   system: '',
   prompt: defaultPrompt,
   dialogue_number: 1,
-  is_result: false
+  is_result: false,
+  temperature: null,
+  max_tokens: null,
+  dialogue_type: 'WORKFLOW',
+  model_setting: {
+    reasoning_content_start: '<think>',
+    reasoning_content_end: '</think>',
+    reasoning_content_enable: false
+  }
 }
 
 const chat_data = computed({
   get: () => {
     if (props.nodeModel.properties.node_data) {
+      if (!props.nodeModel.properties.node_data.model_setting) {
+        set(props.nodeModel.properties.node_data, 'model_setting', {
+          reasoning_content_start: '<think>',
+          reasoning_content_end: '</think>',
+          reasoning_content_enable: false
+        })
+      }
       return props.nodeModel.properties.node_data
     } else {
       set(props.nodeModel.properties, 'node_data', form)
     }
+
     return props.nodeModel.properties.node_data
   },
   set: (value) => {
@@ -247,12 +262,10 @@ const chat_data = computed({
 const props = defineProps<{ nodeModel: any }>()
 
 const aiChatNodeFormRef = ref<FormInstance>()
-const createModelRef = ref<InstanceType<typeof CreateModelDialog>>()
-const selectProviderRef = ref<InstanceType<typeof SelectProviderDialog>>()
 
 const modelOptions = ref<any>(null)
-const providerOptions = ref<Array<Provider>>([])
-
+const AIModeParamSettingDialogRef = ref<InstanceType<typeof AIModeParamSettingDialog>>()
+const ReasoningParamSettingDialogRef = ref<InstanceType<typeof ReasoningParamSettingDialog>>()
 const validate = () => {
   return aiChatNodeFormRef.value?.validate().catch((err) => {
     return Promise.reject({ node: props.nodeModel, errMessage: err })
@@ -271,36 +284,55 @@ function getModel() {
   }
 }
 
-function getProvider() {
-  model.asyncGetProvider().then((res: any) => {
-    providerOptions.value = res?.data
-  })
-}
-
-const openCreateModel = (provider?: Provider) => {
-  if (provider && provider.provider) {
-    createModelRef.value?.open(provider)
-  } else {
-    selectProviderRef.value?.open()
+const openAIParamSettingDialog = (modelId: string) => {
+  if (modelId) {
+    AIModeParamSettingDialogRef.value?.open(modelId, id, chat_data.value.model_params_setting)
   }
 }
 
+const openReasoningParamSettingDialog = () => {
+  ReasoningParamSettingDialogRef.value?.open(chat_data.value.model_setting)
+}
+
+function refreshParam(data: any) {
+  set(props.nodeModel.properties.node_data, 'model_params_setting', data)
+}
+
+function submitReasoningDialog(val: any) {
+  let model_setting = cloneDeep(props.nodeModel.properties.node_data.model_setting)
+  model_setting = {
+    ...model_setting,
+    ...val
+  }
+
+  set(props.nodeModel.properties.node_data, 'model_setting', model_setting)
+}
+
+const mcpServersDialogRef = ref()
+function openMcpServersDialog() {
+  const config = {
+    mcp_servers: chat_data.value.mcp_servers,
+    mcp_enable: chat_data.value.mcp_enable
+  }
+  mcpServersDialogRef.value.open(config)
+}
+
+function submitMcpServersDialog(config: any) {
+  set(props.nodeModel.properties.node_data, 'mcp_servers', config.mcp_servers)
+  set(props.nodeModel.properties.node_data, 'mcp_enable', config.mcp_enable)
+}
+
 onMounted(() => {
-  getProvider()
   getModel()
   if (typeof props.nodeModel.properties.node_data?.is_result === 'undefined') {
     if (isLastNode(props.nodeModel)) {
       set(props.nodeModel.properties.node_data, 'is_result', true)
     }
   }
-
   set(props.nodeModel, 'validate', validate)
+  if (!chat_data.value.dialogue_type) {
+    chat_data.value.dialogue_type = 'WORKFLOW'
+  }
 })
 </script>
-<style lang="scss" scoped>
-.reply-node-editor {
-  :deep(.md-editor-footer) {
-    border: none !important;
-  }
-}
-</style>
+<style lang="scss" scoped></style>

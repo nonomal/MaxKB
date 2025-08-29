@@ -13,29 +13,33 @@ from common.util.rsa_util import rsa_long_decrypt
 from setting.models_provider.constants.model_provider_constants import ModelProvideConstants
 
 
-def get_model_(provider, model_type, model_name, credential):
+def get_model_(provider, model_type, model_name, credential, model_id, use_local=False, **kwargs):
     """
     获取模型实例
     @param provider:   供应商
     @param model_type: 模型类型
     @param model_name: 模型名称
     @param credential: 认证信息
+    @param model_id:   模型id
+    @param use_local:  是否调用本地模型 只适用于本地供应商
     @return: 模型实例
     """
     model = get_provider(provider).get_model(model_type, model_name,
                                              json.loads(
                                                  rsa_long_decrypt(credential)),
-                                             streaming=True)
+                                             model_id=model_id,
+                                             use_local=use_local,
+                                             streaming=True, **kwargs)
     return model
 
 
-def get_model(model):
+def get_model(model, **kwargs):
     """
     获取模型实例
     @param model: model 数据库Model实例对象
     @return: 模型实例
     """
-    return get_model_(model.provider, model.model_type, model.model_name, model.credential)
+    return get_model_(model.provider, model.model_type, model.model_name, model.credential, str(model.id), **kwargs)
 
 
 def get_provider(provider):
@@ -77,7 +81,7 @@ def get_model_type_list(provider):
     return get_provider(provider).get_model_type_list()
 
 
-def is_valid_credential(provider, model_type, model_name, model_credential: Dict[str, object], raise_exception=False):
+def is_valid_credential(provider, model_type, model_name, model_credential: Dict[str, object], model_params, raise_exception=False):
     """
     校验模型认证参数
     @param provider:         供应商字符串
@@ -87,4 +91,4 @@ def is_valid_credential(provider, model_type, model_name, model_credential: Dict
     @param raise_exception:  是否抛出错误
     @return: True|False
     """
-    return get_provider(provider).is_valid_credential(model_type, model_name, model_credential, raise_exception)
+    return get_provider(provider).is_valid_credential(model_type, model_name, model_credential, model_params, raise_exception)

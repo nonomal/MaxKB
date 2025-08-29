@@ -18,33 +18,49 @@
         class="mr-8"
       >
         <AppIcon iconName="app-pricing" class="mr-8" style="font-size: 20px"></AppIcon>
-        购买专业版
+
+        {{ $t('common.professional') }}
       </el-button>
-      <el-tooltip effect="dark" :content="$t('layout.topbar.github')" placement="top">
+      <el-tooltip
+        effect="dark"
+        :content="$t('layout.github')"
+        placement="top"
+        v-if="user.themeInfo?.showProject"
+      >
         <AppIcon
           iconName="app-github"
           class="cursor color-secondary mr-8 ml-8"
           style="font-size: 20px"
-          @click="toUrl('https://github.com/1Panel-dev/MaxKB')"
+          @click="toUrl(user.themeInfo?.projectUrl)"
         ></AppIcon>
       </el-tooltip>
-      <el-tooltip effect="dark" :content="$t('layout.topbar.wiki')" placement="top">
+      <el-tooltip
+        effect="dark"
+        :content="$t('layout.wiki')"
+        placement="top"
+        v-if="user.themeInfo?.showUserManual"
+      >
         <AppIcon
           iconName="app-reading"
           class="cursor color-secondary mr-8 ml-8"
           style="font-size: 20px"
-          @click="toUrl('https://maxkb.cn/docs/')"
+          @click="toUrl(user.themeInfo?.userManualUrl)"
         ></AppIcon>
       </el-tooltip>
-      <el-tooltip effect="dark" :content="$t('layout.topbar.forum')" placement="top">
+      <el-tooltip
+        effect="dark"
+        :content="$t('layout.forum')"
+        placement="top"
+        v-if="user.themeInfo?.showForum"
+      >
         <AppIcon
           iconName="app-help"
           class="cursor color-secondary mr-16 ml-8"
           style="font-size: 20px"
-          @click="toUrl('https://bbs.fit2cloud.com/c/mk/11')"
+          @click="toUrl(user.themeInfo?.forumUrl)"
         ></AppIcon>
       </el-tooltip>
-      <el-dropdown v-if="false" trigger="click" type="primary">
+      <!-- <el-dropdown trigger="click" type="primary">
         <template #dropdown>
           <el-dropdown-menu>
             <el-dropdown-item
@@ -62,7 +78,7 @@
           style="font-size: 20px"
         >
         </AppIcon>
-      </el-dropdown>
+      </el-dropdown> -->
       <Avatar></Avatar>
     </div>
   </div>
@@ -71,17 +87,17 @@
 import TopMenu from './top-menu/index.vue'
 import Avatar from './avatar/index.vue'
 import { useRouter } from 'vue-router'
-import { langList } from '@/locales/index'
-import { useLocale } from '@/locales/useLocale'
+// import { langList } from '@/locales/index'
+// import { useLocale } from '@/locales/useLocale'
 
 import useStore from '@/stores'
 const { user } = useStore()
 const router = useRouter()
 
-const { changeLocale } = useLocale()
-const changeLang = (lang: string) => {
-  changeLocale(lang)
-}
+// const { changeLocale } = useLocale()
+// const changeLang = (lang: string) => {
+//   changeLocale(lang)
+// }
 function toUrl(url: string) {
   window.open(url, '_blank')
 }

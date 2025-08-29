@@ -4,15 +4,15 @@
   </div>
   <div style="padding: 16px 10px">
     <el-divider v-if="size > 0 && loading">
-      <el-text type="info"> 加载中...</el-text>
+      <el-text type="info"> {{ $t('components.loading') }}...</el-text>
     </el-divider>
     <el-divider v-if="noMore">
-      <el-text type="info"> 到底啦！</el-text>
+      <el-text type="info"> {{ $t('components.noMore') }}</el-text>
     </el-divider>
   </div>
 </template>
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 defineOptions({ name: 'InfiniteScroll' })
 const props = defineProps({
@@ -46,6 +46,15 @@ const props = defineProps({
 
 const emit = defineEmits(['update:current_page', 'load'])
 const current = ref(props.current_page)
+
+watch(
+  () => props.current_page,
+  (val) => {
+    if (val === 1) {
+      current.value = 1
+    }
+  }
+)
 
 const noMore = computed(
   () =>

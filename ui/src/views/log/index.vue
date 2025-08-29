@@ -1,8 +1,13 @@
 <template>
-  <LayoutContainer header="对话日志">
+  <LayoutContainer :header="$t('views.log.title')">
     <div class="p-24">
       <div class="mb-16">
-        <el-select v-model="history_day" class="mr-12 w-240" @change="changeHandle">
+        <el-select
+          v-model="history_day"
+          class="mr-12"
+          @change="changeDayHandle"
+          style="width: 180px"
+        >
           <el-option
             v-for="item in dayOptions"
             :key="item.value"
@@ -10,34 +15,63 @@
             :value="item.value"
           />
         </el-select>
+        <el-date-picker
+          v-if="history_day === 'other'"
+          v-model="daterangeValue"
+          type="daterange"
+          :start-placeholder="$t('views.applicationOverview.monitor.startDatePlaceholder')"
+          :end-placeholder="$t('views.applicationOverview.monitor.endDatePlaceholder')"
+          format="YYYY-MM-DD"
+          value-format="YYYY-MM-DD"
+          @change="changeDayRangeHandle"
+        />
         <el-input
           v-model="search"
           @change="getList"
-          placeholder="搜索"
+          :placeholder="$t('common.search')"
           prefix-icon="Search"
           class="w-240"
           clearable
         />
-        <el-button class="float-right" @click="exportLog">导出</el-button>
+        <div style="display: flex; align-items: center" class="float-right">
+          <el-button @click="dialogVisible = true">{{
+            $t('views.log.buttons.clearStrategy')
+          }}</el-button>
+          <el-button @click="exportLog">{{ $t('common.export') }}</el-button>
+          <el-button @click="openDocumentDialog" :disabled="multipleSelection.length === 0"
+            >{{ $t('views.log.addToDataset') }}
+          </el-button>
+        </div>
       </div>
 
       <app-table
         :data="tableData"
         :pagination-config="paginationConfig"
-        @sizeChange="handleSizeChange"
+        @sizeChange="getList"
         @changePage="getList"
         @row-click="rowClickHandle"
         v-loading="loading"
         :row-class-name="setRowClass"
+        @selection-change="handleSelectionChange"
         class="log-table"
+        ref="multipleTableRef"
       >
-        <el-table-column prop="abstract" label="摘要" show-overflow-tooltip />
-        <el-table-column prop="chat_record_count" label="对话提问数" align="right" />
+        <el-table-column type="selection" width="55" />
+        <el-table-column
+          prop="abstract"
+          :label="$t('views.log.table.abstract')"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          prop="chat_record_count"
+          :label="$t('views.log.table.chat_record_count')"
+          align="right"
+        />
         <el-table-column prop="star_num" align="right">
           <template #header>
             <div>
-              <span>用户反馈</span>
-              <el-popover :width="190" trigger="click" :visible="popoverVisible">
+              <span>{{ $t('views.log.table.feedback.label') }}</span>
+              <el-popover :width="200" trigger="click" :visible="popoverVisible">
                 <template #reference>
                   <el-button
                     style="margin-top: -2px"
@@ -45,20 +79,22 @@
                     link
                     @click="popoverVisible = !popoverVisible"
                   >
-                    <el-icon><Filter /></el-icon>
+                    <el-icon>
+                      <Filter />
+                    </el-icon>
                   </el-button>
                 </template>
                 <div class="filter">
                   <div class="form-item mb-16">
                     <div @click.stop>
-                      赞同 >=
+                      {{ $t('views.log.table.feedback.star') }} >=
                       <el-input-number
                         v-model="filter.min_star"
                         :min="0"
                         :step="1"
                         :value-on-clear="0"
                         controls-position="right"
-                        style="width: 100px"
+                        style="width: 80px"
                         size="small"
                         step-strictly
                       />
@@ -66,14 +102,14 @@
                   </div>
                   <div class="form-item mb-16">
                     <div @click.stop>
-                      反对 >=
+                      {{ $t('views.log.table.feedback.trample') }} >=
                       <el-input-number
                         v-model="filter.min_trample"
                         :min="0"
                         :step="1"
                         :value-on-clear="0"
                         controls-position="right"
-                        style="width: 100px"
+                        style="width: 80px"
                         size="small"
                         step-strictly
                       />
@@ -81,8 +117,12 @@
                   </div>
                 </div>
                 <div class="text-right">
-                  <el-button size="small" @click="filterChange('clear')">清除</el-button>
-                  <el-button type="primary" @click="filterChange" size="small">确认</el-button>
+                  <el-button size="small" @click="filterChange('clear')">{{
+                    $t('common.clear')
+                  }}</el-button>
+                  <el-button type="primary" @click="filterChange" size="small">{{
+                    $t('common.confirm')
+                  }}</el-button>
                 </div>
               </el-popover>
             </div>
@@ -101,22 +141,17 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="mark_sum" label="改进标注" align="right" />
-        <el-table-column label="时间" width="180">
+        <el-table-column prop="mark_sum" :label="$t('views.log.table.mark')" align="right" />
+        <el-table-column prop="asker" :label="$t('views.log.table.user')">
           <template #default="{ row }">
-            {{ datetimeFormat(row.create_time) }}
+            {{ row.asker?.user_name }}
           </template>
         </el-table-column>
-
-        <!-- <el-table-column label="操作" width="70" align="left">
+        <el-table-column :label="$t('views.log.table.recenTimes')" width="180">
           <template #default="{ row }">
-            <el-tooltip effect="dark" content="删除" placement="top">
-              <el-button type="primary" text @click.stop="deleteLog(row)">
-                <el-icon><Delete /></el-icon>
-              </el-button>
-            </el-tooltip>
+            {{ datetimeFormat(row.update_time) }}
           </template>
-        </el-table-column> -->
+        </el-table-column>
       </app-table>
     </div>
     <ChatRecordDrawer
@@ -130,50 +165,193 @@
       :next_disable="next_disable"
       @refresh="refresh"
     />
+    <el-dialog
+      :title="$t('views.log.buttons.clearStrategy')"
+      v-model="dialogVisible"
+      width="25%"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
+      <span>{{ $t('common.delete') }}</span>
+      <el-input-number
+        v-model="days"
+        controls-position="right"
+        :min="1"
+        :max="100000"
+        :value-on-clear="0"
+        step-strictly
+        style="width: 110px; margin-left: 8px; margin-right: 8px"
+      ></el-input-number>
+      <span>{{ $t('views.log.daysText') }}</span>
+      <template #footer>
+        <div class="dialog-footer" style="margin-top: 16px">
+          <el-button @click="dialogVisible = false">{{ $t('common.cancel') }} </el-button>
+          <el-button type="primary" @click="saveCleanTime">
+            {{ $t('common.save') }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <el-dialog
+      :title="$t('views.log.addToDataset')"
+      v-model="documentDialogVisible"
+      width="50%"
+      :close-on-click-modal="false"
+      :close-on-press-escape="false"
+    >
+      <el-form
+        ref="formRef"
+        :model="form"
+        label-position="top"
+        require-asterisk-position="right"
+        :rules="rules"
+        @submit.prevent
+      >
+        <el-form-item :label="$t('views.log.selectDataset')" prop="dataset_id">
+          <el-select
+            v-model="form.dataset_id"
+            filterable
+            :placeholder="$t('views.log.selectDatasetPlaceholder')"
+            :loading="optionLoading"
+            @change="changeDataset"
+          >
+            <el-option
+              v-for="item in datasetList"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            >
+              <span class="flex align-center">
+                <AppAvatar
+                  v-if="!item.dataset_id && item.type === '1'"
+                  class="mr-12 avatar-purple"
+                  shape="square"
+                  :size="24"
+                >
+                  <img src="@/assets/icon_web.svg" style="width: 58%" alt="" />
+                </AppAvatar>
+                <AppAvatar
+                  v-else-if="!item.dataset_id && item.type === '2'"
+                  class="mr-12 avatar-purple"
+                  shape="square"
+                  :size="24"
+                  style="background: none"
+                >
+                  <img src="@/assets/logo_lark.svg" style="width: 100%" alt="" />
+                </AppAvatar>
+                <AppAvatar
+                  v-else-if="!item.dataset_id && item.type === '0'"
+                  class="mr-12 avatar-blue"
+                  shape="square"
+                  :size="24"
+                >
+                  <img src="@/assets/icon_document.svg" style="width: 58%" alt="" />
+                </AppAvatar>
+                {{ item.name }}
+              </span>
+            </el-option>
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="$t('views.log.saveToDocument')" prop="document_id">
+          <el-select
+            v-model="form.document_id"
+            filterable
+            :placeholder="$t('views.log.documentPlaceholder')"
+            :loading="optionLoading"
+            @change="changeDocument"
+          >
+            <el-option
+              v-for="item in documentList"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            >
+              {{ item.name }}
+            </el-option>
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click.prevent="documentDialogVisible = false">
+            {{ $t('common.cancel') }}
+          </el-button>
+          <el-button type="primary" @click="submitForm(formRef)" :loading="documentLoading">
+            {{ $t('common.save') }}
+          </el-button>
+        </span>
+      </template>
+    </el-dialog>
   </LayoutContainer>
 </template>
 <script setup lang="ts">
-import { ref, onMounted, reactive, computed } from 'vue'
+import { ref, type Ref, onMounted, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { cloneDeep } from 'lodash'
 import ChatRecordDrawer from './component/ChatRecordDrawer.vue'
 import { MsgSuccess, MsgConfirm } from '@/utils/message'
 import logApi from '@/api/log'
-import { datetimeFormat } from '@/utils/time'
+import { beforeDay, datetimeFormat, nowDate } from '@/utils/time'
 import useStore from '@/stores'
 import type { Dict } from '@/api/type/common'
-const { application, log } = useStore()
+import { t } from '@/locales'
+import type { FormInstance, FormRules } from 'element-plus'
+import { ElTable } from 'element-plus'
+
+const { application, log, document, user } = useStore()
 const route = useRoute()
 const {
   params: { id }
-} = route
+} = route as any
+
+const emit = defineEmits(['refresh'])
+const formRef = ref()
 
 const dayOptions = [
   {
     value: 7,
-    label: '过去7天'
+    // @ts-ignore
+    label: t('views.applicationOverview.monitor.pastDayOptions.past7Days') // 使用 t 方法来国际化显示文本
   },
   {
     value: 30,
-    label: '过去30天'
+    label: t('views.applicationOverview.monitor.pastDayOptions.past30Days')
   },
   {
     value: 90,
-    label: '过去90天'
+    label: t('views.applicationOverview.monitor.pastDayOptions.past90Days')
   },
   {
     value: 183,
-    label: '过去半年'
+    label: t('views.applicationOverview.monitor.pastDayOptions.past183Days')
+  },
+  {
+    value: 'other',
+    label: t('views.applicationOverview.monitor.pastDayOptions.other')
   }
 ]
+const daterangeValue = ref('')
+// 提交日期时间
+const daterange = ref({
+  start_time: '',
+  end_time: ''
+})
+
+const multipleTableRef = ref<InstanceType<typeof ElTable>>()
+const multipleSelection = ref<any[]>([])
 
 const ChatRecordRef = ref()
 const loading = ref(false)
+const documentLoading = ref(false)
 const paginationConfig = reactive({
   current_page: 1,
   page_size: 20,
   total: 0
 })
+const dialogVisible = ref(false)
+const documentDialogVisible = ref(false)
+const days = ref<number>(180)
 const tableData = ref<any[]>([])
 const tableIndexMap = computed<Dict<number>>(() => {
   return tableData.value
@@ -182,7 +360,8 @@ const tableIndexMap = computed<Dict<number>>(() => {
     }))
     .reduce((pre, next) => ({ ...pre, ...next }), {})
 })
-const history_day = ref(7)
+const history_day = ref<number | string>(7)
+
 const search = ref('')
 const detail = ref<any>(null)
 
@@ -199,6 +378,27 @@ const filter = ref<any>({
   min_trample: 0,
   comparer: 'and'
 })
+
+const form = ref<any>({
+  dataset_id: '',
+  document_id: ''
+})
+
+const rules = reactive<FormRules>({
+  dataset_id: [
+    { required: true, message: t('views.log.selectDatasetPlaceholder'), trigger: 'change' }
+  ],
+  document_id: [
+    {
+      required: true,
+      message: t('views.log.documentPlaceholder'),
+      trigger: 'change'
+    }
+  ]
+})
+
+const optionLoading = ref(false)
+const documentList = ref<any[]>([])
 
 function filterChange(val: string) {
   if (val === 'clear') {
@@ -279,35 +479,29 @@ const setRowClass = ({ row }: any) => {
   return currentChatId.value === row?.id ? 'highlight' : ''
 }
 
-function deleteLog(row: any) {
-  MsgConfirm(`是否删除对话：${row.abstract} ?`, `删除后无法恢复，请谨慎操作。`, {
-    confirmButtonText: '删除',
-    confirmButtonClass: 'danger'
-  })
-    .then(() => {
-      loading.value = true
-      logApi.delChatLog(id as string, row.id, loading).then(() => {
-        MsgSuccess('删除成功')
-        getList()
-      })
-    })
-    .catch(() => {})
+const handleSelectionChange = (val: any[]) => {
+  multipleSelection.value = val
 }
 
-function handleSizeChange() {
-  paginationConfig.current_page = 1
-  getList()
-}
-
-function changeHandle(val: number) {
-  history_day.value = val
-  paginationConfig.current_page = 1
-  getList()
-}
+// function deleteLog(row: any) {
+//   MsgConfirm(`是否删除对话：${row.abstract} ?`, `删除后无法恢复，请谨慎操作。`, {
+//     confirmButtonText: t('common.delete'),
+//     confirmButtonClass: 'danger'
+//   })
+//     .then(() => {
+//       loading.value = true
+//       logApi.delChatLog(id as string, row.id, loading).then(() => {
+//         MsgSuccess(t('common.deleteSuccess'))
+//         getList()
+//       })
+//     })
+//     .catch(() => {})
+// }
 
 function getList() {
   let obj: any = {
-    history_day: history_day.value,
+    start_time: daterange.value.start_time,
+    end_time: daterange.value.end_time,
     ...filter.value
   }
   if (search.value) {
@@ -322,35 +516,147 @@ function getList() {
   })
 }
 
-function getDetail() {
-  application.asyncGetApplicationDetail(id as string, loading).then((res: any) => {
-    detail.value = res.data
-  })
+function getDetail(isLoading = false) {
+  application
+    .asyncGetApplicationDetail(id as string, isLoading ? loading : undefined)
+    .then((res: any) => {
+      detail.value = res.data
+      days.value = res.data.clean_time
+    })
 }
 
 const exportLog = () => {
+  const arr: string[] = []
+  multipleSelection.value.map((v) => {
+    if (v) {
+      arr.push(v.id)
+    }
+  })
   if (detail.value) {
     let obj: any = {
-      history_day: history_day.value,
+      start_time: daterange.value.start_time,
+      end_time: daterange.value.end_time,
       ...filter.value
     }
     if (search.value) {
       obj = { ...obj, abstract: search.value }
     }
-    logApi.exportChatLog(detail.value.id, detail.value.name, obj, loading)
+
+    logApi.exportChatLog(detail.value.id, detail.value.name, obj, { select_ids: arr }, loading)
   }
 }
+
 function refresh() {
   getList()
 }
 
-onMounted(() => {
+function changeDayRangeHandle(val: string) {
+  daterange.value.start_time = val[0]
+  daterange.value.end_time = val[1]
   getList()
+}
+
+function changeDayHandle(val: number | string) {
+  if (val !== 'other') {
+    daterange.value.start_time = beforeDay(val)
+    daterange.value.end_time = nowDate
+    getList()
+  }
+}
+
+function saveCleanTime() {
+  const obj = {
+    clean_time: days.value
+  }
+  application
+    .asyncPutApplication(id as string, obj, loading)
+    .then(() => {
+      MsgSuccess(t('common.saveSuccess'))
+      dialogVisible.value = false
+      getDetail(true)
+    })
+    .catch(() => {
+      dialogVisible.value = false
+    })
+}
+
+function changeDataset(dataset_id: string) {
+  localStorage.setItem(id + 'chat_dataset_id', dataset_id)
+  form.value.document_id = ''
+  getDocument(dataset_id)
+}
+
+function changeDocument(document_id: string) {
+  localStorage.setItem(id + 'chat_document_id', document_id)
+}
+
+const datasetList = ref<any[]>([])
+
+function getDataset() {
+  application.asyncGetApplicationDataset(id, documentLoading).then((res: any) => {
+    datasetList.value = res.data
+    if (localStorage.getItem(id + 'chat_dataset_id')) {
+      form.value.dataset_id = localStorage.getItem(id + 'chat_dataset_id') as string
+      if (!datasetList.value.find((v) => v.id === form.value.dataset_id)) {
+        form.value.dataset_id = ''
+        form.value.document_id = ''
+      } else {
+        getDocument(form.value.dataset_id)
+      }
+    }
+  })
+}
+
+const submitForm = async (formEl: FormInstance | undefined) => {
+  if (!formEl) return
+  const arr: string[] = []
+  multipleSelection.value.map((v) => {
+    if (v) {
+      arr.push(v.id)
+    }
+  })
+  await formEl.validate((valid) => {
+    if (valid) {
+      const obj = {
+        document_id: form.value.document_id,
+        dataset_id: form.value.dataset_id,
+        chat_ids: arr
+      }
+      logApi.postChatRecordLog(id, form.value.dataset_id, obj, documentLoading).then((res: any) => {
+        multipleTableRef.value?.clearSelection()
+        documentDialogVisible.value = false
+      })
+    }
+  })
+}
+
+function getDocument(dataset_id: string) {
+  document.asyncGetAllDocument(dataset_id, documentLoading).then((res: any) => {
+    documentList.value = res.data
+    if (localStorage.getItem(id + 'chat_document_id')) {
+      form.value.document_id = localStorage.getItem(id + 'chat_document_id') as string
+    }
+    if (!documentList.value.find((v) => v.id === form.value.document_id)) {
+      form.value.document_id = ''
+    }
+  })
+}
+
+function openDocumentDialog() {
+  getDataset()
+  formRef.value?.clearValidate()
+  documentDialogVisible.value = true
+}
+
+onMounted(() => {
+  changeDayHandle(history_day.value)
   getDetail()
 })
 </script>
 <style lang="scss" scoped>
-.log-table tr {
-  cursor: pointer;
+.log-table {
+  :deep(tr) {
+    cursor: pointer;
+  }
 }
 </style>

@@ -14,6 +14,10 @@ from application.flow.step_node.condition_node.i_condition_node import IConditio
 
 
 class BaseConditionNode(IConditionNode):
+    def save_context(self, details, workflow_manage):
+        self.context['branch_id'] = details.get('branch_id')
+        self.context['branch_name'] = details.get('branch_name')
+
     def execute(self, **kwargs) -> NodeResult:
         branch_list = self.node_params_serializer.data['branch']
         branch = self._execute(branch_list)
@@ -32,7 +36,15 @@ class BaseConditionNode(IConditionNode):
         return all(condition_list) if condition == 'and' else any(condition_list)
 
     def assertion(self, field_list: List[str], compare: str, value):
-        field_value = self.workflow_manage.get_reference_field(field_list[0], field_list[1:])
+        try:
+            value = self.workflow_manage.generate_prompt(value)
+        except Exception as e:
+            pass
+        field_value = None
+        try:
+            field_value = self.workflow_manage.get_reference_field(field_list[0], field_list[1:])
+        except  Exception as e:
+            pass
         for compare_handler in compare_handle_list:
             if compare_handler.support(field_list[0], field_list[1:], field_value, compare, value):
                 return compare_handler.compare(field_value, compare, value)

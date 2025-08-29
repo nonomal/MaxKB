@@ -1,8 +1,6 @@
 <template>
   <el-cascader
     @wheel="wheel"
-    @keydown="isKeyDown = true"
-    @keyup="isKeyDown = false"
     :teleported="false"
     :options="options"
     @visible-change="visibleChange"
@@ -11,12 +9,7 @@
     separator=" > "
   >
     <template #default="{ node, data }">
-      <span
-        class="flex align-center"
-        @wheel="wheel"
-        @keydown="isKeyDown = true"
-        @keyup="isKeyDown = false"
-      >
+      <span class="flex align-center" @wheel="wheel">
         <component :is="iconComponent(`${data.type}-icon`)" class="mr-8" :size="18" />{{
           data.label
         }}</span
@@ -28,9 +21,11 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { iconComponent } from '../icons/utils'
+import { t } from '@/locales'
 const props = defineProps<{
   nodeModel: any
   modelValue: Array<any>
+  global?: Boolean
 }>()
 const emit = defineEmits(['update:modelValue'])
 const data = computed({
@@ -42,10 +37,11 @@ const data = computed({
   }
 })
 const options = ref<Array<any>>([])
-const isKeyDown = ref(false)
+
 const wheel = (e: any) => {
-  if (isKeyDown.value) {
+  if (e.ctrlKey === true) {
     e.preventDefault()
+    return true
   } else {
     e.stopPropagation()
     return true
@@ -54,71 +50,38 @@ const wheel = (e: any) => {
 
 function visibleChange(bool: boolean) {
   if (bool) {
-    options.value = getIncomingNode(props.nodeModel.id)
+    options.value = props.global
+      ? props.nodeModel.get_up_node_field_list(false, true).filter((v: any) => v.value === 'global')
+      : props.nodeModel.get_up_node_field_list(false, true)
   }
 }
 
-function _getIncomingNode(id: String, startId: String, value: Array<any>) {
-  let list = props.nodeModel.graphModel.getNodeIncomingNode(id)
-  list = list.filter((item: any) => item.id !== startId)
-  let firstElement = null
-  if (list.length > 0) {
-    list.forEach((item: any) => {
-      if (!value.some((obj: any) => obj.id === item.id)) {
-        value.unshift({
-          value: item.id,
-          label: item.properties.stepName,
-          type: item.type,
-          children: item.properties?.config?.fields || []
-        })
-        if (item.properties?.globalFields && item.type === 'start-node') {
-          firstElement = {
-            value: 'global',
-            label: '全局变量',
-            type: 'global',
-            children: item.properties?.config?.globalFields || []
-          }
-        }
-      }
-    })
-
-    list.forEach((item: any) => {
-      _getIncomingNode(item.id, startId, value)
-    })
-  }
-  if (firstElement) {
-    value.unshift(firstElement)
-  }
-  return value
-}
-function getIncomingNode(id: string) {
-  return _getIncomingNode(id, id, [])
-}
 const validate = () => {
-  const incomingNodeValue = getIncomingNode(props.nodeModel.id)
-  options.value = incomingNodeValue
+  const incomingNodeValue = props.nodeModel.get_up_node_field_list(false, true)
   if (!data.value || data.value.length === 0) {
-    return Promise.reject('引用变量必填')
+    return Promise.reject(t('views.applicationWorkflow.variable.ReferencingRequired'))
   }
   if (data.value.length < 2) {
-    return Promise.reject('引用变量错误')
+    return Promise.reject(t('views.applicationWorkflow.variable.ReferencingError'))
   }
   const node_id = data.value[0]
   const node_field = data.value[1]
   const nodeParent = incomingNodeValue.find((item: any) => item.value === node_id)
   if (!nodeParent) {
     data.value = []
-    return Promise.reject('不存在的引用变量')
+    return Promise.reject(t('views.applicationWorkflow.variable.NoReferencing'))
   }
   if (!nodeParent.children.some((item: any) => item.value === node_field)) {
     data.value = []
-    return Promise.reject('不存在的引用变量')
+    return Promise.reject(t('views.applicationWorkflow.variable.NoReferencing'))
   }
   return Promise.resolve('')
 }
 defineExpose({ validate })
 onMounted(() => {
-  options.value = getIncomingNode(props.nodeModel.id)
+  options.value = props.global
+    ? props.nodeModel.get_up_node_field_list(false, true).filter((v: any) => v.value === 'global')
+    : props.nodeModel.get_up_node_field_list(false, true)
 })
 </script>
 <style scoped></style>

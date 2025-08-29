@@ -8,12 +8,13 @@
         require-asterisk-position="right"
         ref="ceFormRef"
         v-model="_data[index]"
+        :model="_data[index]"
         :other-params="other"
         :render_data="render_data()"
         v-bind="attr"
         :parent_field="formField.field + '.' + index"
       ></DynamicsForm>
-      <el-tooltip effect="dark" content="删除" placement="top">
+      <el-tooltip effect="dark" :content="$t('common.delete')" placement="top">
         <el-button text @click.stop="deleteDataset(item)" class="delete-button">
           <el-icon><Delete /></el-icon>
         </el-button>
@@ -128,7 +129,7 @@ defineExpose({
     cursor: pointer;
     min-height: var(--card-min-height);
     border: 1px dashed var(--el-color-primary);
-    background: #eff0f1;
+    background: var(--el-disabled-bg-color);;
     padding-bottom: 20px;
 
     .add-icon {

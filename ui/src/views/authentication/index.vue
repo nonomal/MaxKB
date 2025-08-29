@@ -1,27 +1,23 @@
 <template>
   <div class="authentication-setting p-16-24">
-    <h4>{{ $t('login.authentication') }}</h4>
-    <el-tabs v-model="activeName" class="demo-tabs" @tab-click="handleClick">
+    <h4>{{ $t('views.system.authentication.title') }}</h4>
+    <el-tabs v-model="activeName" class="mt-4" @tab-click="handleClick">
       <template v-for="(item, index) in tabList" :key="index">
         <el-tab-pane :label="item.label" :name="item.name">
-          <div class="authentication-setting__main main-calc-height">
-            <el-scrollbar>
-              <div class="form-container">
-                <component :is="item.component" />
-              </div>
-            </el-scrollbar>
-          </div>
+          <component :is="item.component" />
         </el-tab-pane>
       </template>
     </el-tabs>
   </div>
 </template>
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import LDAP from './component/LDAP.vue'
 import CAS from './component/CAS.vue'
 import OIDC from './component/OIDC.vue'
+import SCAN from './component/SCAN.vue'
+import OAuth2 from './component/OAuth2.vue'
 import { t } from '@/locales'
 import useStore from '@/stores'
 
@@ -31,19 +27,29 @@ const router = useRouter()
 const activeName = ref('LDAP')
 const tabList = [
   {
-    label: t('login.ldap.title'),
+    label: t('views.system.authentication.ldap.title'),
     name: 'LDAP',
     component: LDAP
   },
   {
-    label: t('login.cas.title'),
+    label: t('views.system.authentication.cas.title'),
     name: 'CAS',
     component: CAS
   },
   {
-    label: t('login.oidc.title'),
+    label: t('views.system.authentication.oidc.title'),
     name: 'OIDC',
     component: OIDC
+  },
+  {
+    label: t('views.system.authentication.oauth2.title'),
+    name: 'OAuth2',
+    component: OAuth2
+  },
+  {
+    label: t('views.system.authentication.scanTheQRCode.title'),
+    name: 'SCAN',
+    component: SCAN
   }
 ]
 
@@ -62,12 +68,9 @@ onMounted(() => {
   min-width: 700px;
   height: calc(100vh - var(--app-header-height) - var(--app-view-padding) * 2 - 70px);
   box-sizing: border-box;
-  .form-container {
+  :deep(.form-container) {
     width: 70%;
     margin: 0 auto;
-    :deep(.el-checkbox__label) {
-      font-weight: 400;
-    }
   }
 }
 </style>

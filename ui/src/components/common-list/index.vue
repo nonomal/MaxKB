@@ -3,18 +3,18 @@
     <ul v-if="data.length > 0">
       <template v-for="(item, index) in data" :key="index">
         <li
-          @click.prevent="clickHandle(item, index)"
+          @click.stop="clickHandle(item, index)"
           :class="current === item[props.valueKey] ? 'active' : ''"
           class="cursor"
-          @mouseenter="mouseenter(item)"
-          @mouseleave="mouseleave()"
+          @mouseenter.stop="mouseenter(item)"
+          @mouseleave.stop="mouseleave()"
         >
           <slot :row="item" :index="index"> </slot>
         </li>
       </template>
     </ul>
     <slot name="empty" v-else>
-      <el-empty description="暂无数据" />
+      <el-empty :description="$t('common.noData')" />
     </slot>
   </div>
 </template>
@@ -59,6 +59,13 @@ function clickHandle(row: any, index: number) {
   current.value = row[props.valueKey]
   emit('click', row)
 }
+
+function clearCurrent() {
+  current.value = 0
+}
+defineExpose({
+  clearCurrent
+})
 </script>
 <style lang="scss" scoped>
 /* 通用 ui li样式 */
@@ -66,11 +73,20 @@ function clickHandle(row: any, index: number) {
   li {
     padding: 10px 16px;
     font-weight: 400;
+    color: var(--el-text-color-regular);
+    font-size: 14px;
     &.active {
       background: var(--el-color-primary-light-9);
       border-radius: 4px;
       color: var(--el-color-primary);
       font-weight: 500;
+      &:hover {
+        background: var(--el-color-primary-light-9);
+      }
+    }
+    &:hover {
+      border-radius: 4px;
+      background: var(--app-text-color-light-1);
     }
   }
 }

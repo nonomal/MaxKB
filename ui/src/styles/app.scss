@@ -15,6 +15,7 @@
 html {
   height: 100%;
   box-sizing: border-box;
+  font-size: 100%;
 }
 
 body {
@@ -133,6 +134,9 @@ h5 {
 .max-w-200 {
   max-width: 200px;
 }
+.max-w-350 {
+  max-width: 350px;
+}
 
 .mt-4 {
   margin-top: calc(var(--app-base-px) - 4px);
@@ -211,6 +215,9 @@ h5 {
 .p-8-12 {
   padding: calc(var(--app-base-px)) calc(var(--app-base-px) + 4px);
 }
+.p-12-16 {
+  padding: calc(var(--app-base-px) + 4px) calc(var(--app-base-px) * 2);
+}
 .p-12-24 {
   padding: calc(var(--app-base-px) + 4px) calc(var(--app-base-px) * 3);
 }
@@ -245,6 +252,12 @@ h5 {
   align-items: center;
 }
 
+.flex-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-content: space-between;
+}
+
 .align-center {
   align-items: center;
 }
@@ -271,6 +284,10 @@ h5 {
   vertical-align: middle;
 }
 
+.line-height-22 {
+  line-height: 22px;
+}
+
 .border {
   border: 1px solid var(--el-border-color);
 }
@@ -295,6 +312,9 @@ h5 {
 .border-r-4 {
   border-radius: 4px;
 }
+.border-r-8 {
+  border-radius: 8px;
+}
 
 .border-t-dashed {
   border-top: 1px dashed var(--el-border-color);
@@ -304,8 +324,15 @@ h5 {
   color: var(--el-color-primary);
 }
 
+.border-none {
+  border: none;
+}
+
 .cursor {
   cursor: pointer;
+}
+.notAllowed {
+  cursor: not-allowed;
 }
 
 /*
@@ -373,7 +400,7 @@ h5 {
 
 /* tag */
 .default-tag {
-  background: var(--el-color-primary-light-7);
+  background: var(--el-color-primary-light-8);
   color: var(--el-color-primary);
   border: none;
 }
@@ -425,7 +452,9 @@ h5 {
 .rotate-90 {
   transform: rotateZ(90deg);
 }
-
+.rotate-180 {
+  transform: rotateZ(180deg);
+}
 /*
   表格第一行插入自定义行
 */
@@ -470,7 +499,7 @@ h5 {
 }
 
 .avatar-light {
-  background: var(--el-color-primary-light-4);
+  background: var(--el-color-primary-light-3);
 }
 
 .avatar-purple {
@@ -478,6 +507,13 @@ h5 {
 }
 .avatar-blue {
   background: #3370ff;
+}
+
+.avatar-green {
+  background: #34c724;
+}
+.avatar-grey {
+  background: #bbbfc4;
 }
 
 .success {
@@ -572,7 +608,7 @@ h5 {
 .card__radio {
   width: 100%;
   display: block;
-
+  line-height: 22px;
   .el-radio {
     white-space: break-spaces;
     width: 100%;
@@ -594,22 +630,6 @@ h5 {
   }
   .el-card__body {
     padding: calc(var(--app-base-px) + 4px) calc(var(--app-base-px) * 2);
-  }
-}
-
-// AI模型选择：添加模型hover样式
-.select-model {
-  .el-select-dropdown__footer {
-    &:hover {
-      background-color: var(--el-fill-color-light);
-    }
-  }
-  .model-icon {
-    width: 20px;
-  }
-  .check-icon {
-    position: absolute;
-    right: 10px;
   }
 }
 
@@ -695,14 +715,79 @@ h5 {
     font-weight: 400;
   }
   .el-radio-button__original-radio:checked + .el-radio-button__inner {
-    color: var(--el-color-primary);
-    background: var(--el-color-primary-light-9);
-    border: none;
-    box-shadow: none;
+    color: var(--el-color-primary) !important;
+    background: var(--el-color-primary-light-9) !important;
+    border: none !important;
+    box-shadow: none !important;
+    font-weight: 500;
   }
 }
 
 // 自定义主题
 .custom-header {
   background: var(--el-color-primary-light-9) !important;
+}
+
+.edit-avatar {
+  position: relative;
+  .edit-mask {
+    position: absolute;
+    left: 0;
+    background: rgba(0, 0, 0, 0.4);
+  }
+}
+
+.record-tip-confirm {
+  max-width: 800px !important;
+}
+
+//企业微信
+.wwLogin_qrcode_head {
+  padding: 20px 0 !important;
+}
+
+// 复合搜索框
+.complex-search {
+  border: 1px solid var(--el-border-color);
+  border-radius: var(--el-border-radius-base);
+  .el-select__wrapper {
+    box-shadow: none !important;
+  }
+  .el-input__wrapper {
+    box-shadow: none !important;
+  }
+  &__left {
+    border-right: 1px solid var(--el-border-color);
+  }
+}
+
+@media only screen and (max-width: 768px) {
+  .responsive-dialog {
+    width: 90% !important;
+  }
+}
+
+// 蓝色提示框
+.update-info {
+  background: #d6e2ff;
+  line-height: 25px;
+}
+
+// 参数设置dialog
+.param-dialog {
+  padding: 8px 8px 24px 8px;
+  .el-dialog__header {
+    padding: 16px 16px 0 16px;
+  }
+  .el-dialog__body {
+    padding: 0 !important;
+  }
+  .dialog-max-height {
+    height: 550px;
+  }
+  .custom-slider {
+    .el-input-number.is-without-controls .el-input__wrapper {
+      padding: 0 !important;
+    }
+  }
 }

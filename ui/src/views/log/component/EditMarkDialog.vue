@@ -1,8 +1,15 @@
 <template>
-  <el-dialog title="修改标注" v-model="dialogVisible" width="600" class="edit-mark-dialog">
+  <el-dialog
+    :title="$t('views.log.editMark')"
+    v-model="dialogVisible"
+    width="600"
+    class="edit-mark-dialog"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+  >
     <template #header="{ titleId, titleClass }">
       <div class="flex-between">
-        <h4 :id="titleId" :class="titleClass">修改标注</h4>
+        <h4 :id="titleId" :class="titleClass">{{ $t('views.log.editMark') }}</h4>
         <div class="text-right">
           <el-button text @click="isEdit = true" v-if="!isEdit">
             <el-icon><EditPen /></el-icon>
@@ -29,8 +36,8 @@
           <el-form-item prop="content">
             <el-input
               v-model="form.content"
-              placeholder="请输入分段内容"
-              maxlength="100000"
+              :placeholder="$t('views.log.form.content.placeholder')"
+              :maxlength="100000"
               show-word-limit
               :rows="15"
               type="textarea"
@@ -44,8 +51,10 @@
 
     <template #footer>
       <span class="dialog-footer" v-if="isEdit">
-        <el-button @click.prevent="isEdit = false"> 取消 </el-button>
-        <el-button type="primary" @click="submit(formRef)" :loading="loading"> 保存 </el-button>
+        <el-button @click.prevent="isEdit = false"> {{ $t('common.cancel') }} </el-button>
+        <el-button type="primary" @click="submit(formRef)" :loading="loading">
+          {{ $t('common.save') }}
+        </el-button>
       </span>
     </template>
   </el-dialog>
@@ -56,6 +65,7 @@ import { useRoute } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import logApi from '@/api/log'
 import useStore from '@/stores'
+import { t } from '@/locales'
 import { MsgSuccess, MsgConfirm } from '@/utils/message'
 
 const route = useRoute()
@@ -77,7 +87,7 @@ const isEdit = ref(false)
 const detail = ref<any>({})
 
 const rules = reactive<FormRules>({
-  content: [{ required: true, message: '请输入内容', trigger: 'blur' }]
+  content: [{ required: true, message: t('views.log.form.content.placeholder'), trigger: 'blur' }]
 })
 
 watch(dialogVisible, (bool) => {
@@ -100,7 +110,7 @@ function deleteMark() {
     )
     .then(() => {
       emit('refresh')
-      MsgSuccess('删除成功')
+      MsgSuccess(t('common.deleteSuccess'))
       dialogVisible.value = false
     })
 }
@@ -141,7 +151,7 @@ const submit = async (formEl: FormInstance) => {
 
 defineExpose({ open })
 </script>
-<style lang="scss" scope>
+<style lang="scss" scoped>
 .edit-mark-dialog {
   .el-dialog__header.show-close {
     padding-right: 15px;

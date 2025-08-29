@@ -7,11 +7,12 @@
   </el-card>
 </template>
 <script setup lang="ts">
+import { t } from '@/locales'
 defineOptions({ name: 'CardAdd' })
 defineProps({
   title: {
     type: String,
-    default: '标题'
+    default: t('common.title')
   }
 })
 </script>
@@ -25,7 +26,7 @@ defineProps({
   cursor: pointer;
   min-height: var(--card-min-height);
   border: 1px dashed var(--el-border-color);
-  background: #eff0f1;
+  background: var(--el-disabled-bg-color);
   border-radius: 8px;
   box-sizing: border-box;
 

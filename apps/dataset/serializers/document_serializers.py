@@ -6,47 +6,69 @@
     @date：2023/9/22 13:43
     @desc:
 """
+import io
 import logging
 import os
 import re
 import traceback
 import uuid
 from functools import reduce
+from tempfile import TemporaryDirectory
 from typing import List, Dict
 
-import xlwt
+import openpyxl
+from celery_once import AlreadyQueued
 from django.core import validators
-from django.db import transaction
-from django.db.models import QuerySet
+from django.db import transaction, models
+from django.db.models import QuerySet, Count
+from django.db.models.functions import Substr, Reverse
 from django.http import HttpResponse
+from django.utils.translation import get_language
+from django.utils.translation import gettext_lazy as _, gettext, to_locale
 from drf_yasg import openapi
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from rest_framework import serializers
 from xlwt import Utils
 
-from common.db.search import native_search, native_page_search
+from common.db.search import native_search, native_page_search, get_dynamics_model
+from common.event import ListenerManagement
 from common.event.common import work_thread_pool
-from common.event.listener_manage import ListenerManagement, SyncWebDocumentArgs, UpdateEmbeddingDatasetIdArgs
 from common.exception.app_exception import AppApiException
+from common.handle.impl.csv_split_handle import CsvSplitHandle
 from common.handle.impl.doc_split_handle import DocSplitHandle
 from common.handle.impl.html_split_handle import HTMLSplitHandle
 from common.handle.impl.pdf_split_handle import PdfSplitHandle
 from common.handle.impl.qa.csv_parse_qa_handle import CsvParseQAHandle
 from common.handle.impl.qa.xls_parse_qa_handle import XlsParseQAHandle
 from common.handle.impl.qa.xlsx_parse_qa_handle import XlsxParseQAHandle
+from common.handle.impl.qa.zip_parse_qa_handle import ZipParseQAHandle
+from common.handle.impl.table.csv_parse_table_handle import CsvSplitHandle as CsvSplitTableHandle
+from common.handle.impl.table.xls_parse_table_handle import XlsSplitHandle as XlsSplitTableHandle
+from common.handle.impl.table.xlsx_parse_table_handle import XlsxSplitHandle as XlsxSplitTableHandle
 from common.handle.impl.text_split_handle import TextSplitHandle
+from common.handle.impl.xls_split_handle import XlsSplitHandle
+from common.handle.impl.xlsx_split_handle import XlsxSplitHandle
+from common.handle.impl.zip_split_handle import ZipSplitHandle
 from common.mixins.api_mixin import ApiMixin
-from common.util.common import post, flat_map
+from common.util.common import post, flat_map, bulk_create_in_batches, parse_image
 from common.util.field_message import ErrMessage
 from common.util.file_util import get_file_content
 from common.util.fork import Fork
 from common.util.split_model import get_split_model
-from dataset.models.data_set import DataSet, Document, Paragraph, Problem, Type, Status, ProblemParagraphMapping, Image
+from dataset.models.data_set import DataSet, Document, Paragraph, Problem, Type, ProblemParagraphMapping, Image, \
+    TaskType, State
 from dataset.serializers.common_serializers import BatchSerializer, MetaSerializer, ProblemParagraphManage, \
-    get_embedding_model_by_dataset_id
+    get_embedding_model_id_by_dataset_id, write_image, zip_dir
 from dataset.serializers.paragraph_serializers import ParagraphSerializers, ParagraphInstanceSerializer
+from dataset.task import sync_web_document, generate_related_by_document_id
+from embedding.task.embedding import embedding_by_document, delete_embedding_by_document_list, \
+    delete_embedding_by_document, update_embedding_dataset_id, delete_embedding_by_paragraph_ids, \
+    embedding_by_document_list
+from setting.models import Model
 from smartdoc.conf import PROJECT_DIR
 
-parse_qa_handle_list = [XlsParseQAHandle(), CsvParseQAHandle(), XlsxParseQAHandle()]
+parse_qa_handle_list = [XlsParseQAHandle(), CsvParseQAHandle(), XlsxParseQAHandle(), ZipParseQAHandle()]
+parse_table_handle_list = [CsvSplitTableHandle(), XlsSplitTableHandle(), XlsxSplitTableHandle()]
 
 
 class FileBufferHandle:
@@ -58,25 +80,53 @@ class FileBufferHandle:
         return self.buffer
 
 
+class BatchCancelInstanceSerializer(serializers.Serializer):
+    id_list = serializers.ListField(required=True, child=serializers.UUIDField(required=True),
+                                    error_messages=ErrMessage.char(_('id list')))
+    type = serializers.IntegerField(required=True, error_messages=ErrMessage.integer(
+        _('task type')))
+
+    def is_valid(self, *, raise_exception=False):
+        super().is_valid(raise_exception=True)
+        _type = self.data.get('type')
+        try:
+            TaskType(_type)
+        except Exception as e:
+            raise AppApiException(500, _('task type not support'))
+
+
+class CancelInstanceSerializer(serializers.Serializer):
+    type = serializers.IntegerField(required=True, error_messages=ErrMessage.integer(
+        _('task type')))
+
+    def is_valid(self, *, raise_exception=False):
+        super().is_valid(raise_exception=True)
+        _type = self.data.get('type')
+        try:
+            TaskType(_type)
+        except Exception as e:
+            raise AppApiException(500, _('task type not support'))
+
+
 class DocumentEditInstanceSerializer(ApiMixin, serializers.Serializer):
     meta = serializers.DictField(required=False)
     name = serializers.CharField(required=False, max_length=128, min_length=1,
                                  error_messages=ErrMessage.char(
-                                     "文档名称"))
+                                     _('document name')))
     hit_handling_method = serializers.CharField(required=False, validators=[
         validators.RegexValidator(regex=re.compile("^optimization|directly_return$"),
-                                  message="类型只支持optimization|directly_return",
+                                  message=_('The type only supports optimization|directly_return'),
                                   code=500)
-    ], error_messages=ErrMessage.char("命中处理方式"))
+    ], error_messages=ErrMessage.char(_('hit handling method')))
 
     directly_return_similarity = serializers.FloatField(required=False,
                                                         max_value=2,
                                                         min_value=0,
                                                         error_messages=ErrMessage.float(
-                                                            "直接返回分数"))
+                                                            _('directly return similarity')))
 
     is_active = serializers.BooleanField(required=False, error_messages=ErrMessage.boolean(
-        "文档是否可用"))
+        _('document is active')))
 
     @staticmethod
     def get_meta_valid_map():
@@ -97,12 +147,12 @@ class DocumentEditInstanceSerializer(ApiMixin, serializers.Serializer):
 class DocumentWebInstanceSerializer(ApiMixin, serializers.Serializer):
     source_url_list = serializers.ListField(required=True,
                                             child=serializers.CharField(required=True, error_messages=ErrMessage.char(
-                                                "文档地址")),
+                                                _('document url list'))),
                                             error_messages=ErrMessage.char(
-                                                "文档地址列表"))
+                                                _('document url list')))
     selector = serializers.CharField(required=False, allow_null=True, allow_blank=True,
                                      error_messages=ErrMessage.char(
-                                         "选择器"))
+                                         _('selector')))
 
     @staticmethod
     def get_request_params_api():
@@ -111,18 +161,31 @@ class DocumentWebInstanceSerializer(ApiMixin, serializers.Serializer):
                                   type=openapi.TYPE_ARRAY,
                                   items=openapi.Items(type=openapi.TYPE_FILE),
                                   required=True,
-                                  description='上传文件'),
+                                  description=_('file')),
                 openapi.Parameter(name='dataset_id',
                                   in_=openapi.IN_PATH,
                                   type=openapi.TYPE_STRING,
                                   required=True,
-                                  description='知识库id'),
+                                  description=_('dataset id')),
                 ]
+
+    @staticmethod
+    def get_request_body_api():
+        return openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['source_url_list'],
+            properties={
+                'source_url_list': openapi.Schema(type=openapi.TYPE_ARRAY, title=_('source url list'),
+                                                  description=_('source url list'),
+                                                  items=openapi.Schema(type=openapi.TYPE_STRING)),
+                'selector': openapi.Schema(type=openapi.TYPE_STRING, title=_('selector'), description=_('selector'))
+            }
+        )
 
 
 class DocumentInstanceSerializer(ApiMixin, serializers.Serializer):
     name = serializers.CharField(required=True,
-                                 error_messages=ErrMessage.char("文档名称"),
+                                 error_messages=ErrMessage.char(_('document name')),
                                  max_length=128,
                                  min_length=1)
 
@@ -134,8 +197,10 @@ class DocumentInstanceSerializer(ApiMixin, serializers.Serializer):
             type=openapi.TYPE_OBJECT,
             required=['name', 'paragraphs'],
             properties={
-                'name': openapi.Schema(type=openapi.TYPE_STRING, title="文档名称", description="文档名称"),
-                'paragraphs': openapi.Schema(type=openapi.TYPE_ARRAY, title="段落列表", description="段落列表",
+                'name': openapi.Schema(type=openapi.TYPE_STRING, title=_('document name'),
+                                       description=_('document name')),
+                'paragraphs': openapi.Schema(type=openapi.TYPE_ARRAY, title=_('paragraphs'),
+                                             description=_('paragraphs'),
                                              items=ParagraphSerializers.Create.get_request_body_api())
             }
         )
@@ -143,18 +208,25 @@ class DocumentInstanceSerializer(ApiMixin, serializers.Serializer):
 
 class DocumentInstanceQASerializer(ApiMixin, serializers.Serializer):
     file_list = serializers.ListSerializer(required=True,
-                                           error_messages=ErrMessage.list("文件列表"),
+                                           error_messages=ErrMessage.list(_('file list')),
                                            child=serializers.FileField(required=True,
-                                                                       error_messages=ErrMessage.file("文件")))
+                                                                       error_messages=ErrMessage.file(_('file'))))
+
+
+class DocumentInstanceTableSerializer(ApiMixin, serializers.Serializer):
+    file_list = serializers.ListSerializer(required=True,
+                                           error_messages=ErrMessage.list(_('file list')),
+                                           child=serializers.FileField(required=True,
+                                                                       error_messages=ErrMessage.file(_('file'))))
 
 
 class DocumentSerializers(ApiMixin, serializers.Serializer):
     class Export(ApiMixin, serializers.Serializer):
         type = serializers.CharField(required=True, validators=[
             validators.RegexValidator(regex=re.compile("^csv|excel$"),
-                                      message="模版类型只支持excel|csv",
+                                      message=_('The template type only supports excel|csv'),
                                       code=500)
-        ], error_messages=ErrMessage.char("模版类型"))
+        ], error_messages=ErrMessage.char(_('type')))
 
         @staticmethod
         def get_request_params_api():
@@ -162,22 +234,47 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                                       in_=openapi.IN_QUERY,
                                       type=openapi.TYPE_STRING,
                                       required=True,
-                                      description='导出模板类型csv|excel'),
+                                      description=_('Export template type csv|excel')),
 
                     ]
 
         def export(self, with_valid=True):
             if with_valid:
                 self.is_valid(raise_exception=True)
-
+            language = get_language()
             if self.data.get('type') == 'csv':
-                file = open(os.path.join(PROJECT_DIR, "apps", "dataset", 'template', 'csv_template.csv'), "rb")
+                file = open(
+                    os.path.join(PROJECT_DIR, "apps", "dataset", 'template', f'csv_template_{to_locale(language)}.csv'),
+                    "rb")
+                content = file.read()
+                file.close()
+                return HttpResponse(content, status=200, headers={'Content-Type': 'text/csv',
+                                                                  'Content-Disposition': 'attachment; filename="csv_template.csv"'})
+            elif self.data.get('type') == 'excel':
+                file = open(os.path.join(PROJECT_DIR, "apps", "dataset", 'template',
+                                         f'excel_template_{to_locale(language)}.xlsx'), "rb")
+                content = file.read()
+                file.close()
+                return HttpResponse(content, status=200, headers={'Content-Type': 'application/vnd.ms-excel',
+                                                                  'Content-Disposition': 'attachment; filename="excel_template.xlsx"'})
+
+        def table_export(self, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+            language = get_language()
+            if self.data.get('type') == 'csv':
+                file = open(
+                    os.path.join(PROJECT_DIR, "apps", "dataset", 'template',
+                                 f'table_template_{to_locale(language)}.csv'),
+                    "rb")
                 content = file.read()
                 file.close()
                 return HttpResponse(content, status=200, headers={'Content-Type': 'text/cxv',
                                                                   'Content-Disposition': 'attachment; filename="csv_template.csv"'})
             elif self.data.get('type') == 'excel':
-                file = open(os.path.join(PROJECT_DIR, "apps", "dataset", 'template', 'excel_template.xlsx'), "rb")
+                file = open(os.path.join(PROJECT_DIR, "apps", "dataset", 'template',
+                                         f'table_template_{to_locale(language)}.xlsx'),
+                            "rb")
                 content = file.read()
                 file.close()
                 return HttpResponse(content, status=200, headers={'Content-Type': 'application/vnd.ms-excel',
@@ -186,13 +283,14 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
     class Migrate(ApiMixin, serializers.Serializer):
         dataset_id = serializers.UUIDField(required=True,
                                            error_messages=ErrMessage.char(
-                                               "知识库id"))
+                                               _('dataset id')))
         target_dataset_id = serializers.UUIDField(required=True,
                                                   error_messages=ErrMessage.char(
-                                                      "目标知识库id"))
-        document_id_list = serializers.ListField(required=True, error_messages=ErrMessage.char("文档列表"),
+                                                      _('target dataset id')))
+        document_id_list = serializers.ListField(required=True, error_messages=ErrMessage.char(_('document list')),
                                                  child=serializers.UUIDField(required=True,
-                                                                             error_messages=ErrMessage.uuid("文档id")))
+                                                                             error_messages=ErrMessage.uuid(
+                                                                                 _('document id'))))
 
         @transaction.atomic
         def migrate(self, with_valid=True):
@@ -235,17 +333,27 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                                      meta={})
             else:
                 document_list.update(dataset_id=target_dataset_id)
-            model = None
+            model_id = None
             if dataset.embedding_mode_id != target_dataset.embedding_mode_id:
-                model = get_embedding_model_by_dataset_id(target_dataset_id)
+                model_id = get_embedding_model_id_by_dataset_id(target_dataset_id)
 
             pid_list = [paragraph.id for paragraph in paragraph_list]
             # 修改段落信息
             paragraph_list.update(dataset_id=target_dataset_id)
             # 修改向量信息
-            ListenerManagement.update_embedding_dataset_id(UpdateEmbeddingDatasetIdArgs(
-                pid_list,
-                target_dataset_id, model))
+            if model_id:
+                delete_embedding_by_paragraph_ids(pid_list)
+                ListenerManagement.update_status(QuerySet(Document).filter(id__in=document_id_list),
+                                                 TaskType.EMBEDDING,
+                                                 State.PENDING)
+                ListenerManagement.update_status(QuerySet(Paragraph).filter(document_id__in=document_id_list),
+                                                 TaskType.EMBEDDING,
+                                                 State.PENDING)
+                ListenerManagement.get_aggregation_document_status_by_query_set(
+                    QuerySet(Document).filter(id__in=document_id_list))()
+                embedding_by_document_list.delay(document_id_list, model_id)
+            else:
+                update_embedding_dataset_id(pid_list, target_dataset_id)
 
         @staticmethod
         def get_target_dataset_problem(target_dataset_id: str,
@@ -275,12 +383,12 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                                       in_=openapi.IN_PATH,
                                       type=openapi.TYPE_STRING,
                                       required=True,
-                                      description='知识库id'),
+                                      description=_('document id')),
                     openapi.Parameter(name='target_dataset_id',
                                       in_=openapi.IN_PATH,
                                       type=openapi.TYPE_STRING,
                                       required=True,
-                                      description='目标知识库id')
+                                      description=_('target document id'))
                     ]
 
         @staticmethod
@@ -288,21 +396,26 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             return openapi.Schema(
                 type=openapi.TYPE_ARRAY,
                 items=openapi.Schema(type=openapi.TYPE_STRING),
-                title='文档id列表',
-                description="文档id列表"
+                title=_('document id list'),
+                description=_('document id list')
             )
 
     class Query(ApiMixin, serializers.Serializer):
         # 知识库id
         dataset_id = serializers.UUIDField(required=True,
                                            error_messages=ErrMessage.char(
-                                               "知识库id"))
+                                               _('dataset id')))
 
         name = serializers.CharField(required=False, max_length=128,
                                      min_length=1,
                                      error_messages=ErrMessage.char(
-                                         "文档名称"))
-        hit_handling_method = serializers.CharField(required=False, error_messages=ErrMessage.char("命中处理方式"))
+                                         _('document name')))
+        hit_handling_method = serializers.CharField(required=False,
+                                                    error_messages=ErrMessage.char(_('hit handling method')))
+        is_active = serializers.BooleanField(required=False, error_messages=ErrMessage.boolean(_('document is active')))
+        task_type = serializers.IntegerField(required=False, error_messages=ErrMessage.integer(_('task type')))
+        status = serializers.CharField(required=False, error_messages=ErrMessage.char(_('status')))
+        order_by = serializers.CharField(required=False, error_messages=ErrMessage.char(_('order by')))
 
         def get_query_set(self):
             query_set = QuerySet(model=Document)
@@ -311,8 +424,36 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                 query_set = query_set.filter(**{'name__icontains': self.data.get('name')})
             if 'hit_handling_method' in self.data and self.data.get('hit_handling_method') is not None:
                 query_set = query_set.filter(**{'hit_handling_method': self.data.get('hit_handling_method')})
-            query_set = query_set.order_by('-create_time')
-            return query_set
+            if 'is_active' in self.data and self.data.get('is_active') is not None:
+                query_set = query_set.filter(**{'is_active': self.data.get('is_active')})
+            if 'status' in self.data and self.data.get(
+                    'status') is not None:
+                task_type = self.data.get('task_type')
+                status = self.data.get(
+                    'status')
+                if task_type is not None:
+                    query_set = query_set.annotate(
+                        reversed_status=Reverse('status'),
+                        task_type_status=Substr('reversed_status', TaskType(task_type).value,
+                                                1),
+                    ).filter(task_type_status=State(status).value).values('id')
+                else:
+                    if status != State.SUCCESS.value:
+                        query_set = query_set.filter(status__icontains=status)
+                    else:
+                        query_set = query_set.filter(status__iregex='^[2n]*$')
+            order_by = self.data.get('order_by', '')
+            order_by_query_set = QuerySet(model=get_dynamics_model(
+                {'char_length': models.CharField(), 'paragraph_count': models.IntegerField(),
+                 "update_time": models.IntegerField(), 'create_time': models.DateTimeField()}))
+            if order_by:
+                order_by_query_set = order_by_query_set.order_by(order_by)
+            else:
+                order_by_query_set = order_by_query_set.order_by('-create_time', 'id')
+            return {
+                'document_custom_sql': query_set,
+                'order_by_query': order_by_query_set
+            }
 
         def list(self, with_valid=False):
             if with_valid:
@@ -332,41 +473,44 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                                       in_=openapi.IN_QUERY,
                                       type=openapi.TYPE_STRING,
                                       required=False,
-                                      description='文档名称'),
+                                      description=_('document name')),
                     openapi.Parameter(name='hit_handling_method', in_=openapi.IN_QUERY,
                                       type=openapi.TYPE_STRING,
                                       required=False,
-                                      description='文档命中处理方式')]
+                                      description=_('hit handling method')), ]
 
         @staticmethod
         def get_response_body_api():
             return openapi.Schema(type=openapi.TYPE_ARRAY,
-                                  title="文档列表", description="文档列表",
+                                  title=_('document list'), description=_('document list'),
                                   items=DocumentSerializers.Operate.get_response_body_api())
 
     class Sync(ApiMixin, serializers.Serializer):
         document_id = serializers.UUIDField(required=True, error_messages=ErrMessage.char(
-            "文档id"))
+            _('document id')))
 
         def is_valid(self, *, raise_exception=False):
             super().is_valid(raise_exception=True)
             document_id = self.data.get('document_id')
             first = QuerySet(Document).filter(id=document_id).first()
             if first is None:
-                raise AppApiException(500, "文档id不存在")
+                raise AppApiException(500, _('document id not exist'))
             if first.type != Type.web:
-                raise AppApiException(500, "只有web站点类型才支持同步")
+                raise AppApiException(500, _('Synchronization is only supported for web site types'))
 
         def sync(self, with_valid=True, with_embedding=True):
             if with_valid:
                 self.is_valid(raise_exception=True)
             document_id = self.data.get('document_id')
             document = QuerySet(Document).filter(id=document_id).first()
+            state = State.SUCCESS
             if document.type != Type.web:
                 return True
             try:
-                document.status = Status.queue_up
-                document.save()
+                ListenerManagement.update_status(QuerySet(Document).filter(id=document_id),
+                                                 TaskType.SYNC,
+                                                 State.PENDING)
+                ListenerManagement.get_aggregation_document_status(document_id)()
                 source_url = document.meta.get('source_url')
                 selector_list = document.meta.get('selector').split(
                     " ") if 'selector' in document.meta and document.meta.get('selector') is not None else []
@@ -376,13 +520,14 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                     QuerySet(model=Paragraph).filter(document_id=document_id).delete()
                     # 删除问题
                     QuerySet(model=ProblemParagraphMapping).filter(document_id=document_id).delete()
+                    delete_problems_and_mappings([document_id])
                     # 删除向量库
-                    ListenerManagement.delete_embedding_by_document_signal.send(document_id)
+                    delete_embedding_by_document(document_id)
                     paragraphs = get_split_model('web.md').parse(result.content)
-                    document.char_length = reduce(lambda x, y: x + y,
-                                                  [len(p.get('content')) for p in paragraphs],
-                                                  0)
-                    document.save()
+                    char_length = reduce(lambda x, y: x + y,
+                                         [len(p.get('content')) for p in paragraphs],
+                                         0)
+                    QuerySet(Document).filter(id=document_id).update(char_length=char_length)
                     document_paragraph_model = DocumentSerializers.Create.get_paragraph_model(document, paragraphs)
 
                     paragraph_model_list = document_paragraph_model.get('paragraph_model_list')
@@ -398,21 +543,34 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                         problem_paragraph_mapping_list) > 0 else None
                     # 向量化
                     if with_embedding:
-                        model = get_embedding_model_by_dataset_id(dataset_id=document.dataset_id)
-                        ListenerManagement.embedding_by_document_signal.send(document_id, embedding_model=model)
+                        embedding_model_id = get_embedding_model_id_by_dataset_id(document.dataset_id)
+                        ListenerManagement.update_status(QuerySet(Document).filter(id=document_id),
+                                                         TaskType.EMBEDDING,
+                                                         State.PENDING)
+                        ListenerManagement.update_status(QuerySet(Paragraph).filter(document_id=document_id),
+                                                         TaskType.EMBEDDING,
+                                                         State.PENDING)
+                        ListenerManagement.get_aggregation_document_status(document_id)()
+                        embedding_by_document.delay(document_id, embedding_model_id)
+
                 else:
-                    document.status = Status.error
-                    document.save()
+                    state = State.FAILURE
             except Exception as e:
                 logging.getLogger("max_kb_error").error(f'{str(e)}:{traceback.format_exc()}')
-                document.status = Status.error
-                document.save()
+                state = State.FAILURE
+            ListenerManagement.update_status(QuerySet(Document).filter(id=document_id),
+                                             TaskType.SYNC,
+                                             state)
+            ListenerManagement.update_status(QuerySet(Paragraph).filter(document_id=document_id),
+                                             TaskType.SYNC,
+                                             state)
+            ListenerManagement.get_aggregation_document_status(document_id)()
             return True
 
     class Operate(ApiMixin, serializers.Serializer):
         document_id = serializers.UUIDField(required=True, error_messages=ErrMessage.char(
-            "文档id"))
-        dataset_id = serializers.UUIDField(required=True, error_messages=ErrMessage.char("数据集id"))
+            _('document id')))
+        dataset_id = serializers.UUIDField(required=True, error_messages=ErrMessage.char(_('dataset id')))
 
         @staticmethod
         def get_request_params_api():
@@ -420,19 +578,19 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                                       in_=openapi.IN_PATH,
                                       type=openapi.TYPE_STRING,
                                       required=True,
-                                      description='知识库id'),
+                                      description=_('document id')),
                     openapi.Parameter(name='document_id',
                                       in_=openapi.IN_PATH,
                                       type=openapi.TYPE_STRING,
                                       required=True,
-                                      description='文档id')
+                                      description=_('document id'))
                     ]
 
         def is_valid(self, *, raise_exception=False):
             super().is_valid(raise_exception=True)
             document_id = self.data.get('document_id')
             if not QuerySet(Document).filter(id=document_id).exists():
-                raise AppApiException(500, "文档id不存在")
+                raise AppApiException(500, _('document id not exist'))
 
         def export(self, with_valid=True):
             if with_valid:
@@ -449,25 +607,63 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             data_dict, document_dict = self.merge_problem(paragraph_list, problem_mapping_list, [document])
             workbook = self.get_workbook(data_dict, document_dict)
             response = HttpResponse(content_type='application/vnd.ms-excel')
-            response['Content-Disposition'] = f'attachment; filename="data.xls"'
+            response['Content-Disposition'] = f'attachment; filename="data.xlsx"'
             workbook.save(response)
+            return response
+
+        def export_zip(self, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+            document = QuerySet(Document).filter(id=self.data.get("document_id")).first()
+            paragraph_list = native_search(QuerySet(Paragraph).filter(document_id=self.data.get("document_id")),
+                                           get_file_content(
+                                               os.path.join(PROJECT_DIR, "apps", "dataset", 'sql',
+                                                            'list_paragraph_document_name.sql')))
+            problem_mapping_list = native_search(
+                QuerySet(ProblemParagraphMapping).filter(document_id=self.data.get("document_id")), get_file_content(
+                    os.path.join(PROJECT_DIR, "apps", "dataset", 'sql', 'list_problem_mapping.sql')),
+                with_table_name=True)
+            data_dict, document_dict = self.merge_problem(paragraph_list, problem_mapping_list, [document])
+            res = [parse_image(paragraph.get('content')) for paragraph in paragraph_list]
+
+            workbook = DocumentSerializers.Operate.get_workbook(data_dict, document_dict)
+            response = HttpResponse(content_type='application/zip')
+            response['Content-Disposition'] = 'attachment; filename="archive.zip"'
+            zip_buffer = io.BytesIO()
+            with TemporaryDirectory() as tempdir:
+                dataset_file = os.path.join(tempdir, 'dataset.xlsx')
+                workbook.save(dataset_file)
+                for r in res:
+                    write_image(tempdir, r)
+                zip_dir(tempdir, zip_buffer)
+            response.write(zip_buffer.getvalue())
             return response
 
         @staticmethod
         def get_workbook(data_dict, document_dict):
             # 创建工作簿对象
-            workbook = xlwt.Workbook(encoding='utf-8')
+            workbook = openpyxl.Workbook()
+            workbook.remove_sheet(workbook.active)
+            if len(data_dict.keys()) == 0:
+                data_dict['sheet'] = []
             for sheet_id in data_dict:
                 # 添加工作表
-                worksheet = workbook.add_sheet(document_dict.get(sheet_id))
+                worksheet = workbook.create_sheet(document_dict.get(sheet_id))
                 data = [
-                    ['分段标题（选填）', '分段内容（必填，问题答案，最长不超过4096个字符）', '问题（选填，单元格内一行一个）'],
-                    *data_dict.get(sheet_id)
+                    [gettext('Section title (optional)'),
+                     gettext('Section content (required, question answer, no more than 4096 characters)'),
+                     gettext('Question (optional, one per line in the cell)')],
+                    *data_dict.get(sheet_id, [])
                 ]
                 # 写入数据到工作表
                 for row_idx, row in enumerate(data):
                     for col_idx, col in enumerate(row):
-                        worksheet.write(row_idx, col_idx, col)
+                        cell = worksheet.cell(row=row_idx + 1, column=col_idx + 1)
+                        if isinstance(col, str):
+                            col = re.sub(ILLEGAL_CHARACTERS_RE, '', col)
+                            if col.startswith(('=', '+', '-', '@')):
+                                col = '\ufeff' + col
+                        cell.value = col
                     # 创建HttpResponse对象返回Excel文件
             return workbook
 
@@ -509,6 +705,8 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
 
         @staticmethod
         def reset_document_name(document_name):
+            if document_name is not None:
+                document_name = document_name.strip()[0:29]
             if document_name is None or not Utils.valid_sheet_name(document_name):
                 return "Sheet"
             return document_name.strip()
@@ -518,7 +716,10 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                 self.is_valid(raise_exception=True)
             query_set = QuerySet(model=Document)
             query_set = query_set.filter(**{'id': self.data.get("document_id")})
-            return native_search(query_set, select_string=get_file_content(
+            return native_search({
+                'document_custom_sql': query_set,
+                'order_by_query': QuerySet(Document).order_by('-create_time', 'id')
+            }, select_string=get_file_content(
                 os.path.join(PROJECT_DIR, "apps", "dataset", 'sql', 'list_document.sql')), with_search_one=True)
 
         def edit(self, instance: Dict, with_valid=False):
@@ -534,14 +735,62 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             _document.save()
             return self.one()
 
-        def refresh(self, with_valid=True):
+        def refresh(self, state_list=None, with_valid=True):
+            if state_list is None:
+                state_list = [State.PENDING.value, State.STARTED.value, State.SUCCESS.value, State.FAILURE.value,
+                              State.REVOKE.value,
+                              State.REVOKED.value, State.IGNORED.value]
             if with_valid:
                 self.is_valid(raise_exception=True)
+            dataset = QuerySet(DataSet).filter(id=self.data.get('dataset_id')).first()
+            embedding_model_id = dataset.embedding_mode_id
+            dataset_user_id = dataset.user_id
+            embedding_model = QuerySet(Model).filter(id=embedding_model_id).first()
+            if embedding_model is None:
+                raise AppApiException(500, _('Model does not exist'))
+            if embedding_model.permission_type == 'PRIVATE' and dataset_user_id != embedding_model.user_id:
+                raise AppApiException(500, _('No permission to use this model') + f"{embedding_model.name}")
             document_id = self.data.get("document_id")
-            model = get_embedding_model_by_dataset_id(dataset_id=self.data.get('dataset_id'))
-            QuerySet(Document).filter(id=document_id).update(**{'status': Status.queue_up})
-            QuerySet(Paragraph).filter(document_id=document_id).update(**{'status': Status.queue_up})
-            ListenerManagement.embedding_by_document_signal.send(document_id, embedding_model=model)
+            ListenerManagement.update_status(QuerySet(Document).filter(id=document_id), TaskType.EMBEDDING,
+                                             State.PENDING)
+            ListenerManagement.update_status(QuerySet(Paragraph).annotate(
+                reversed_status=Reverse('status'),
+                task_type_status=Substr('reversed_status', TaskType.EMBEDDING.value,
+                                        1),
+            ).filter(task_type_status__in=state_list, document_id=document_id)
+                                             .values('id'),
+                                             TaskType.EMBEDDING,
+                                             State.PENDING)
+            ListenerManagement.get_aggregation_document_status(document_id)()
+
+            try:
+                embedding_by_document.delay(document_id, embedding_model_id, state_list)
+            except AlreadyQueued as e:
+                raise AppApiException(500, _('The task is being executed, please do not send it repeatedly.'))
+
+        def cancel(self, instance, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+                CancelInstanceSerializer(data=instance).is_valid()
+            document_id = self.data.get("document_id")
+            ListenerManagement.update_status(QuerySet(Paragraph).annotate(
+                reversed_status=Reverse('status'),
+                task_type_status=Substr('reversed_status', TaskType(instance.get('type')).value,
+                                        1),
+            ).filter(task_type_status__in=[State.PENDING.value, State.STARTED.value]).filter(
+                document_id=document_id).values('id'),
+                                             TaskType(instance.get('type')),
+                                             State.REVOKE)
+            ListenerManagement.update_status(QuerySet(Document).annotate(
+                reversed_status=Reverse('status'),
+                task_type_status=Substr('reversed_status', TaskType(instance.get('type')).value,
+                                        1),
+            ).filter(task_type_status__in=[State.PENDING.value, State.STARTED.value]).filter(
+                id=document_id).values('id'),
+                                             TaskType(instance.get('type')),
+                                             State.REVOKE)
+
+            return True
 
         @transaction.atomic
         def delete(self):
@@ -550,9 +799,9 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             # 删除段落
             QuerySet(model=Paragraph).filter(document_id=document_id).delete()
             # 删除问题
-            QuerySet(model=ProblemParagraphMapping).filter(document_id=document_id).delete()
+            delete_problems_and_mappings([document_id])
             # 删除向量库
-            ListenerManagement.delete_embedding_by_document_signal.send(document_id)
+            delete_embedding_by_document(document_id)
             return True
 
         @staticmethod
@@ -564,20 +813,20 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                 properties={
                     'id': openapi.Schema(type=openapi.TYPE_STRING, title="id",
                                          description="id", default="xx"),
-                    'name': openapi.Schema(type=openapi.TYPE_STRING, title="名称",
-                                           description="名称", default="测试知识库"),
-                    'char_length': openapi.Schema(type=openapi.TYPE_INTEGER, title="字符数",
-                                                  description="字符数", default=10),
-                    'user_id': openapi.Schema(type=openapi.TYPE_STRING, title="用户id", description="用户id"),
-                    'paragraph_count': openapi.Schema(type=openapi.TYPE_INTEGER, title="文档数量",
-                                                      description="文档数量", default=1),
-                    'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN, title="是否可用",
-                                                description="是否可用", default=True),
-                    'update_time': openapi.Schema(type=openapi.TYPE_STRING, title="修改时间",
-                                                  description="修改时间",
+                    'name': openapi.Schema(type=openapi.TYPE_STRING, title=_('name'),
+                                           description=_('name'), default="xx"),
+                    'char_length': openapi.Schema(type=openapi.TYPE_INTEGER, title=_('char length'),
+                                                  description=_('char length'), default=10),
+                    'user_id': openapi.Schema(type=openapi.TYPE_STRING, title=_('user id'), description=_('user id')),
+                    'paragraph_count': openapi.Schema(type=openapi.TYPE_INTEGER, title="_('document count')",
+                                                      description="_('document count')", default=1),
+                    'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN, title=_('Is active'),
+                                                description=_('Is active'), default=True),
+                    'update_time': openapi.Schema(type=openapi.TYPE_STRING, title=_('update time'),
+                                                  description=_('update time'),
                                                   default="1970-01-01 00:00:00"),
-                    'create_time': openapi.Schema(type=openapi.TYPE_STRING, title="创建时间",
-                                                  description="创建时间",
+                    'create_time': openapi.Schema(type=openapi.TYPE_STRING, title=_('create time'),
+                                                  description=_('create time'),
                                                   default="1970-01-01 00:00:00"
                                                   )
                 }
@@ -588,31 +837,36 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             return openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={
-                    'name': openapi.Schema(type=openapi.TYPE_STRING, title="文档名称", description="文档名称"),
-                    'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN, title="是否可用", description="是否可用"),
-                    'hit_handling_method': openapi.Schema(type=openapi.TYPE_STRING, title="命中处理方式",
-                                                          description="ai优化:optimization,直接返回:directly_return"),
-                    'directly_return_similarity': openapi.Schema(type=openapi.TYPE_NUMBER, title="直接返回分数",
+                    'name': openapi.Schema(type=openapi.TYPE_STRING, title=_('document name'),
+                                           description=_('document name')),
+                    'is_active': openapi.Schema(type=openapi.TYPE_BOOLEAN, title=_('Is active'),
+                                                description=_('Is active')),
+                    'hit_handling_method': openapi.Schema(type=openapi.TYPE_STRING, title=_('hit handling method'),
+                                                          description=_(
+                                                              'ai optimization: optimization, direct return: directly_return')),
+                    'directly_return_similarity': openapi.Schema(type=openapi.TYPE_NUMBER,
+                                                                 title=_('directly return similarity'),
                                                                  default=0.9),
-                    'meta': openapi.Schema(type=openapi.TYPE_OBJECT, title="文档元数据",
-                                           description="文档元数据->web:{source_url:xxx,selector:'xxx'},base:{}"),
+                    'meta': openapi.Schema(type=openapi.TYPE_OBJECT, title=_('meta'),
+                                           description=_(
+                                               'Document metadata->web:{source_url:xxx,selector:\'xxx\'},base:{}')),
                 }
             )
 
     class Create(ApiMixin, serializers.Serializer):
         dataset_id = serializers.UUIDField(required=True, error_messages=ErrMessage.char(
-            "文档id"))
+            _('document id')))
 
         def is_valid(self, *, raise_exception=False):
             super().is_valid(raise_exception=True)
             if not QuerySet(DataSet).filter(id=self.data.get('dataset_id')).exists():
-                raise AppApiException(10000, "知识库id不存在")
+                raise AppApiException(10000, _('dataset id not exist'))
             return True
 
         @staticmethod
         def post_embedding(result, document_id, dataset_id):
-            model = get_embedding_model_by_dataset_id(dataset_id)
-            ListenerManagement.embedding_by_document_signal.send(document_id, embedding_model=model)
+            DocumentSerializers.Operate(
+                data={'dataset_id': dataset_id, 'document_id': document_id}).refresh()
             return result
 
         @staticmethod
@@ -620,8 +874,16 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             get_buffer = FileBufferHandle().get_buffer
             for parse_qa_handle in parse_qa_handle_list:
                 if parse_qa_handle.support(file, get_buffer):
-                    return parse_qa_handle.handle(file, get_buffer)
-            raise AppApiException(500, '不支持的文件格式')
+                    return parse_qa_handle.handle(file, get_buffer, save_image)
+            raise AppApiException(500, _('Unsupported file format'))
+
+        @staticmethod
+        def parse_table_file(file):
+            get_buffer = FileBufferHandle().get_buffer
+            for parse_table_handle in parse_table_handle_list:
+                if parse_table_handle.support(file, get_buffer):
+                    return parse_table_handle.handle(file, get_buffer, save_image)
+            raise AppApiException(500, _('Unsupported file format'))
 
         def save_qa(self, instance: Dict, with_valid=True):
             if with_valid:
@@ -629,6 +891,14 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                 self.is_valid(raise_exception=True)
             file_list = instance.get('file_list')
             document_list = flat_map([self.parse_qa_file(file) for file in file_list])
+            return DocumentSerializers.Batch(data={'dataset_id': self.data.get('dataset_id')}).batch_save(document_list)
+
+        def save_table(self, instance: Dict, with_valid=True):
+            if with_valid:
+                DocumentInstanceTableSerializer(data=instance).is_valid(raise_exception=True)
+                self.is_valid(raise_exception=True)
+            file_list = instance.get('file_list')
+            document_list = flat_map([self.parse_table_file(file) for file in file_list])
             return DocumentSerializers.Batch(data={'dataset_id': self.data.get('dataset_id')}).batch_save(document_list)
 
         @post(post_function=post_embedding)
@@ -660,29 +930,6 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                 data={'dataset_id': dataset_id, 'document_id': document_id}).one(
                 with_valid=True), document_id, dataset_id
 
-        @staticmethod
-        def get_sync_handler(dataset_id):
-            def handler(source_url: str, selector, response: Fork.Response):
-                if response.status == 200:
-                    try:
-                        paragraphs = get_split_model('web.md').parse(response.content)
-                        # 插入
-                        DocumentSerializers.Create(data={'dataset_id': dataset_id}).save(
-                            {'name': source_url[0:128], 'paragraphs': paragraphs,
-                             'meta': {'source_url': source_url, 'selector': selector},
-                             'type': Type.web}, with_valid=True)
-                    except Exception as e:
-                        logging.getLogger("max_kb_error").error(f'{str(e)}:{traceback.format_exc()}')
-                else:
-                    Document(name=source_url[0:128],
-                             dataset_id=dataset_id,
-                             meta={'source_url': source_url, 'selector': selector},
-                             type=Type.web,
-                             char_length=0,
-                             status=Status.error).save()
-
-            return handler
-
         def save_web(self, instance: Dict, with_valid=True):
             if with_valid:
                 DocumentWebInstanceSerializer(data=instance).is_valid(raise_exception=True)
@@ -690,8 +937,7 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             dataset_id = self.data.get('dataset_id')
             source_url_list = instance.get('source_url_list')
             selector = instance.get('selector')
-            args = SyncWebDocumentArgs(source_url_list, selector, self.get_sync_handler(dataset_id))
-            ListenerManagement.sync_web_document_signal.send(args)
+            sync_web_document.delay(dataset_id, source_url_list, selector)
 
         @staticmethod
         def get_paragraph_model(document_model, paragraph_list: List):
@@ -737,31 +983,31 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                                       in_=openapi.IN_PATH,
                                       type=openapi.TYPE_STRING,
                                       required=True,
-                                      description='知识库id')
+                                      description=_('document id'))
                     ]
 
     class Split(ApiMixin, serializers.Serializer):
         file = serializers.ListField(required=True, error_messages=ErrMessage.list(
-            "文件列表"))
+            _('file list')))
 
         limit = serializers.IntegerField(required=False, error_messages=ErrMessage.integer(
-            "分段长度"))
+            _('limit')))
 
         patterns = serializers.ListField(required=False,
                                          child=serializers.CharField(required=True, error_messages=ErrMessage.char(
-                                             "分段标识")),
-                                         error_messages=ErrMessage.uuid(
-                                             "分段标识列表"))
+                                             _('patterns'))),
+                                         error_messages=ErrMessage.list(
+                                             _('patterns')))
 
         with_filter = serializers.BooleanField(required=False, error_messages=ErrMessage.boolean(
-            "自动清洗"))
+            _('Auto Clean')))
 
         def is_valid(self, *, raise_exception=True):
             super().is_valid(raise_exception=True)
             files = self.data.get('file')
             for f in files:
                 if f.size > 1024 * 1024 * 100:
-                    raise AppApiException(500, "上传文件最大不能超过100MB")
+                    raise AppApiException(500, _('The maximum size of the uploaded file cannot exceed 100MB'))
 
         @staticmethod
         def get_request_params_api():
@@ -771,27 +1017,28 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                                   type=openapi.TYPE_ARRAY,
                                   items=openapi.Items(type=openapi.TYPE_FILE),
                                   required=True,
-                                  description='上传文件'),
+                                  description=_('file list')),
                 openapi.Parameter(name='limit',
                                   in_=openapi.IN_FORM,
                                   required=False,
-                                  type=openapi.TYPE_INTEGER, title="分段长度", description="分段长度"),
+                                  type=openapi.TYPE_INTEGER, title=_('limit'), description=_('limit')),
                 openapi.Parameter(name='patterns',
                                   in_=openapi.IN_FORM,
                                   required=False,
                                   type=openapi.TYPE_ARRAY, items=openapi.Items(type=openapi.TYPE_STRING),
-                                  title="分段正则列表", description="分段正则列表"),
+                                  title=_('Segmented regular list'), description=_('Segmented regular list')),
                 openapi.Parameter(name='with_filter',
                                   in_=openapi.IN_FORM,
                                   required=False,
-                                  type=openapi.TYPE_BOOLEAN, title="是否清除特殊字符", description="是否清除特殊字符"),
+                                  type=openapi.TYPE_BOOLEAN, title=_('Whether to clear special characters'),
+                                  description=_('Whether to clear special characters')),
             ]
 
         def parse(self):
             file_list = self.data.get("file")
-            return list(
-                map(lambda f: file_to_paragraph(f, self.data.get("patterns", None), self.data.get("with_filter", None),
-                                                self.data.get("limit", 4096)), file_list))
+            return reduce(lambda x, y: [*x, *y],
+                          [file_to_paragraph(f, self.data.get("patterns", None), self.data.get("with_filter", None),
+                                             self.data.get("limit", 4096)) for f in file_list], [])
 
     class SplitPattern(ApiMixin, serializers.Serializer):
         @staticmethod
@@ -803,13 +1050,13 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
                     {'key': '#####', 'value': "(?<=\\n)(?<!#)##### (?!#).*|(?<=^)(?<!#)##### (?!#).*"},
                     {'key': '######', 'value': "(?<=\\n)(?<!#)###### (?!#).*|(?<=^)(?<!#)###### (?!#).*"},
                     {'key': '-', 'value': '(?<! )- .*'},
-                    {'key': '空格', 'value': '(?<! ) (?! )'},
-                    {'key': '分号', 'value': '(?<!；)；(?!；)'}, {'key': '逗号', 'value': '(?<!，)，(?!，)'},
-                    {'key': '句号', 'value': '(?<!。)。(?!。)'}, {'key': '回车', 'value': '(?<!\\n)\\n(?!\\n)'},
-                    {'key': '空行', 'value': '(?<!\\n)\\n\\n(?!\\n)'}]
+                    {'key': _('space'), 'value': '(?<! ) (?! )'},
+                    {'key': _('semicolon'), 'value': '(?<!；)；(?!；)'}, {'key': _('comma'), 'value': '(?<!，)，(?!，)'},
+                    {'key': _('period'), 'value': '(?<!。)。(?!。)'}, {'key': _('enter'), 'value': '(?<!\\n)\\n(?!\\n)'},
+                    {'key': _('blank line'), 'value': '(?<!\\n)\\n\\n(?!\\n)'}]
 
     class Batch(ApiMixin, serializers.Serializer):
-        dataset_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid("知识库id"))
+        dataset_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid(_('dataset id')))
 
         @staticmethod
         def get_request_body_api():
@@ -818,8 +1065,8 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
         @staticmethod
         def post_embedding(document_list, dataset_id):
             for document_dict in document_list:
-                model = get_embedding_model_by_dataset_id(dataset_id)
-                ListenerManagement.embedding_by_document_signal.send(document_dict.get('id'), embedding_model=model)
+                DocumentSerializers.Operate(
+                    data={'dataset_id': dataset_id, 'document_id': document_dict.get('id')}).refresh()
             return document_list
 
         @post(post_function=post_embedding)
@@ -848,20 +1095,22 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             # 插入文档
             QuerySet(Document).bulk_create(document_model_list) if len(document_model_list) > 0 else None
             # 批量插入段落
-            QuerySet(Paragraph).bulk_create(paragraph_model_list) if len(paragraph_model_list) > 0 else None
+            bulk_create_in_batches(Paragraph, paragraph_model_list, batch_size=1000)
             # 批量插入问题
-            QuerySet(Problem).bulk_create(problem_model_list) if len(problem_model_list) > 0 else None
+            bulk_create_in_batches(Problem, problem_model_list, batch_size=1000)
             # 批量插入关联问题
-            QuerySet(ProblemParagraphMapping).bulk_create(problem_paragraph_mapping_list) if len(
-                problem_paragraph_mapping_list) > 0 else None
+            bulk_create_in_batches(ProblemParagraphMapping, problem_paragraph_mapping_list, batch_size=1000)
             # 查询文档
             query_set = QuerySet(model=Document)
             if len(document_model_list) == 0:
-                return [],
+                return [], dataset_id
             query_set = query_set.filter(**{'id__in': [d.id for d in document_model_list]})
-            return native_search(query_set, select_string=get_file_content(
+            return native_search({
+                'document_custom_sql': query_set,
+                'order_by_query': QuerySet(Document).order_by('-create_time', 'id')
+            }, select_string=get_file_content(
                 os.path.join(PROJECT_DIR, "apps", "dataset", 'sql', 'list_document.sql')),
-                                 with_search_one=False), dataset_id
+                with_search_one=False), dataset_id
 
         @staticmethod
         def _batch_sync(document_id_list: List[str]):
@@ -885,19 +1134,41 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             document_id_list = instance.get("id_list")
             QuerySet(Document).filter(id__in=document_id_list).delete()
             QuerySet(Paragraph).filter(document_id__in=document_id_list).delete()
-            QuerySet(ProblemParagraphMapping).filter(document_id__in=document_id_list).delete()
+            delete_problems_and_mappings(document_id_list)
             # 删除向量库
-            ListenerManagement.delete_embedding_by_document_list_signal.send(document_id_list)
+            delete_embedding_by_document_list(document_id_list)
             return True
+
+        def batch_cancel(self, instance: Dict, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+                BatchCancelInstanceSerializer(data=instance).is_valid(raise_exception=True)
+            document_id_list = instance.get("id_list")
+            ListenerManagement.update_status(QuerySet(Paragraph).annotate(
+                reversed_status=Reverse('status'),
+                task_type_status=Substr('reversed_status', TaskType(instance.get('type')).value,
+                                        1),
+            ).filter(task_type_status__in=[State.PENDING.value, State.STARTED.value]).filter(
+                document_id__in=document_id_list).values('id'),
+                                             TaskType(instance.get('type')),
+                                             State.REVOKE)
+            ListenerManagement.update_status(QuerySet(Document).annotate(
+                reversed_status=Reverse('status'),
+                task_type_status=Substr('reversed_status', TaskType(instance.get('type')).value,
+                                        1),
+            ).filter(task_type_status__in=[State.PENDING.value, State.STARTED.value]).filter(
+                id__in=document_id_list).values('id'),
+                                             TaskType(instance.get('type')),
+                                             State.REVOKE)
 
         def batch_edit_hit_handling(self, instance: Dict, with_valid=True):
             if with_valid:
                 BatchSerializer(data=instance).is_valid(model=Document, raise_exception=True)
                 hit_handling_method = instance.get('hit_handling_method')
                 if hit_handling_method is None:
-                    raise AppApiException(500, '命中处理方式必填')
+                    raise AppApiException(500, _('Hit handling method is required'))
                 if hit_handling_method != 'optimization' and hit_handling_method != 'directly_return':
-                    raise AppApiException(500, '命中处理方式必须为directly_return|optimization')
+                    raise AppApiException(500, _('The hit processing method must be directly_return|optimization'))
                 self.is_valid(raise_exception=True)
             document_id_list = instance.get("id_list")
             hit_handling_method = instance.get('hit_handling_method')
@@ -906,6 +1177,73 @@ class DocumentSerializers(ApiMixin, serializers.Serializer):
             if directly_return_similarity is not None:
                 update_dict['directly_return_similarity'] = directly_return_similarity
             QuerySet(Document).filter(id__in=document_id_list).update(**update_dict)
+
+        def batch_refresh(self, instance: Dict, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+            document_id_list = instance.get("id_list")
+            state_list = instance.get("state_list")
+            dataset_id = self.data.get('dataset_id')
+            for document_id in document_id_list:
+                try:
+                    DocumentSerializers.Operate(
+                        data={'dataset_id': dataset_id, 'document_id': document_id}).refresh(state_list)
+                except AlreadyQueued as e:
+                    pass
+
+    class GenerateRelated(ApiMixin, serializers.Serializer):
+        document_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid(_('document id')))
+
+        def is_valid(self, *, raise_exception=False):
+            super().is_valid(raise_exception=True)
+            document_id = self.data.get('document_id')
+            if not QuerySet(Document).filter(id=document_id).exists():
+                raise AppApiException(500, _('document id not exist'))
+
+        def generate_related(self, model_id, prompt, state_list=None, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+            document_id = self.data.get('document_id')
+            ListenerManagement.update_status(QuerySet(Document).filter(id=document_id),
+                                             TaskType.GENERATE_PROBLEM,
+                                             State.PENDING)
+            ListenerManagement.update_status(QuerySet(Paragraph).filter(document_id=document_id),
+                                             TaskType.GENERATE_PROBLEM,
+                                             State.PENDING)
+            ListenerManagement.get_aggregation_document_status(document_id)()
+            try:
+                generate_related_by_document_id.delay(document_id, model_id, prompt, state_list)
+            except AlreadyQueued as e:
+                raise AppApiException(500, _('The task is being executed, please do not send it again.'))
+
+    class BatchGenerateRelated(ApiMixin, serializers.Serializer):
+        dataset_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid(_('dataset id')))
+
+        def batch_generate_related(self, instance: Dict, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+            document_id_list = instance.get("document_id_list")
+            model_id = instance.get("model_id")
+            prompt = instance.get("prompt")
+            state_list = instance.get('state_list')
+            ListenerManagement.update_status(QuerySet(Document).filter(id__in=document_id_list),
+                                             TaskType.GENERATE_PROBLEM,
+                                             State.PENDING)
+            ListenerManagement.update_status(QuerySet(Paragraph).annotate(
+                reversed_status=Reverse('status'),
+                task_type_status=Substr('reversed_status', TaskType.GENERATE_PROBLEM.value,
+                                        1),
+            ).filter(task_type_status__in=state_list, document_id__in=document_id_list)
+                                             .values('id'),
+                                             TaskType.GENERATE_PROBLEM,
+                                             State.PENDING)
+            ListenerManagement.get_aggregation_document_status_by_query_set(
+                QuerySet(Document).filter(id__in=document_id_list))()
+            try:
+                for document_id in document_id_list:
+                    generate_related_by_document_id.delay(document_id, model_id, prompt, state_list)
+            except AlreadyQueued as e:
+                pass
 
 
 class FileBufferHandle:
@@ -918,16 +1256,46 @@ class FileBufferHandle:
 
 
 default_split_handle = TextSplitHandle()
-split_handles = [HTMLSplitHandle(), DocSplitHandle(), PdfSplitHandle(), default_split_handle]
+split_handles = [HTMLSplitHandle(), DocSplitHandle(), PdfSplitHandle(), XlsxSplitHandle(), XlsSplitHandle(),
+                 CsvSplitHandle(),
+                 ZipSplitHandle(),
+                 default_split_handle]
 
 
 def save_image(image_list):
-    QuerySet(Image).bulk_create(image_list)
+    if image_list is not None and len(image_list) > 0:
+        exist_image_list = [str(i.get('id')) for i in
+                            QuerySet(Image).filter(id__in=[i.id for i in image_list]).values('id')]
+        save_image_list = [image for image in image_list if not exist_image_list.__contains__(str(image.id))]
+        save_image_list = list({img.id: img for img in save_image_list}.values())
+        if len(save_image_list) > 0:
+            QuerySet(Image).bulk_create(save_image_list)
 
 
 def file_to_paragraph(file, pattern_list: List, with_filter: bool, limit: int):
     get_buffer = FileBufferHandle().get_buffer
     for split_handle in split_handles:
         if split_handle.support(file, get_buffer):
-            return split_handle.handle(file, pattern_list, with_filter, limit, get_buffer, save_image)
-    return default_split_handle.handle(file, pattern_list, with_filter, limit, get_buffer, save_image)
+            result = split_handle.handle(file, pattern_list, with_filter, limit, get_buffer, save_image)
+            if isinstance(result, list):
+                return result
+            return [result]
+    result = default_split_handle.handle(file, pattern_list, with_filter, limit, get_buffer, save_image)
+    if isinstance(result, list):
+        return result
+    return [result]
+
+
+def delete_problems_and_mappings(document_ids):
+    problem_paragraph_mappings = ProblemParagraphMapping.objects.filter(document_id__in=document_ids)
+    problem_ids = set(problem_paragraph_mappings.values_list('problem_id', flat=True))
+
+    if problem_ids:
+        problem_paragraph_mappings.delete()
+        remaining_problem_counts = ProblemParagraphMapping.objects.filter(problem_id__in=problem_ids).values(
+            'problem_id').annotate(count=Count('problem_id'))
+        remaining_problem_ids = {pc['problem_id'] for pc in remaining_problem_counts}
+        problem_ids_to_delete = problem_ids - remaining_problem_ids
+        Problem.objects.filter(id__in=problem_ids_to_delete).delete()
+    else:
+        problem_paragraph_mappings.delete()

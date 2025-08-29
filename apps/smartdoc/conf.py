@@ -80,14 +80,21 @@ class Config(dict):
         "DB_PORT": 5432,
         "DB_USER": "root",
         "DB_PASSWORD": "Password123@postgres",
-        "DB_ENGINE": "django.db.backends.postgresql_psycopg2",
+        "DB_ENGINE": "dj_db_conn_pool.backends.postgresql",
+        "DB_MAX_OVERFLOW": 80,
+        'LANGUAGE_CODE': 'zh-CN',
         # 向量模型
         "EMBEDDING_MODEL_NAME": "shibing624/text2vec-base-chinese",
         "EMBEDDING_DEVICE": "cpu",
         "EMBEDDING_MODEL_PATH": os.path.join(PROJECT_DIR, 'models'),
         # 向量库配置
         "VECTOR_STORE_NAME": 'pg_vector',
-        "DEBUG": False
+        "DEBUG": False,
+        'SANDBOX': False,
+        'LOCAL_MODEL_HOST': '127.0.0.1',
+        'LOCAL_MODEL_PORT': '11636',
+        'LOCAL_MODEL_PROTOCOL': "http",
+        'LOCAL_MODEL_HOST_WORKER': 1
 
     }
 
@@ -104,8 +111,16 @@ class Config(dict):
             "PORT": self.get('DB_PORT'),
             "USER": self.get('DB_USER'),
             "PASSWORD": self.get('DB_PASSWORD'),
-            "ENGINE": self.get('DB_ENGINE')
+            "ENGINE": self.get('DB_ENGINE'),
+            "POOL_OPTIONS": {
+                "POOL_SIZE": 20,
+                "MAX_OVERFLOW": int(self.get('DB_MAX_OVERFLOW')),
+                'RECYCLE': 30 * 60
+            }
         }
+
+    def get_language_code(self):
+        return self.get('LANGUAGE_CODE', 'zh-CN')
 
     def __init__(self, *args):
         super().__init__(*args)
@@ -186,7 +201,7 @@ class ConfigManager:
     def load_from_env(self):
         keys = os.environ.keys()
         config = {key.replace('MAXKB_', ''): os.environ.get(key) for key in keys if key.startswith('MAXKB_')}
-        if len(config.keys()) <= 1:
+        if len(config.keys()) <= 0:
             msg = f"""
 
                              Error: No config env found.

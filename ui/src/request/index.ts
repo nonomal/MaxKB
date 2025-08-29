@@ -1,4 +1,4 @@
-import axios, { type AxiosRequestConfig } from 'axios'
+import axios, { type InternalAxiosRequestConfig, AxiosHeaders } from 'axios'
 import { MsgError } from '@/utils/message'
 import type { NProgress } from 'nprogress'
 import type { Ref } from 'vue'
@@ -11,7 +11,7 @@ import { ref, type WritableComputedRef } from 'vue'
 const axiosConfig = {
   baseURL: '/api',
   withCredentials: false,
-  timeout: 60000,
+  timeout: 600000,
   headers: {}
 }
 
@@ -19,12 +19,14 @@ const instance = axios.create(axiosConfig)
 
 /* 设置请求拦截器 */
 instance.interceptors.request.use(
-  (config: AxiosRequestConfig) => {
+  (config: InternalAxiosRequestConfig) => {
     if (config.headers === undefined) {
-      config.headers = {}
+      config.headers = new AxiosHeaders()
     }
     const { user } = useStore()
     const token = user.getToken()
+    const language = user.getLanguage()
+    config.headers['Accept-Language'] = `${language}`
     if (token) {
       config.headers['AUTHORIZATION'] = `${token}`
     }
@@ -40,7 +42,13 @@ instance.interceptors.response.use(
   (response: any) => {
     if (response.data) {
       if (response.data.code !== 200 && !(response.data instanceof Blob)) {
-        if (!response.config.url.includes('/valid')) {
+        if (response.config.url.includes('/application/authentication')) {
+          return Promise.reject(response.data)
+        }
+        if (
+          !response.config.url.includes('/valid') &&
+          !response.config.url.includes('/function_lib/debug')
+        ) {
           MsgError(response.data.message)
           return Promise.reject(response.data)
         }
@@ -197,10 +205,12 @@ export const postStream: (url: string, data?: unknown) => Promise<Result<any> | 
 ) => {
   const { user } = useStore()
   const token = user.getToken()
+  const language = user.getLanguage()
   const headers: HeadersInit = { 'Content-Type': 'application/json' }
   if (token) {
     headers['AUTHORIZATION'] = `${token}`
   }
+  headers['Accept-Language'] = `${language}`
   return fetch(url, {
     method: 'POST',
     body: data ? JSON.stringify(data) : undefined,
@@ -219,8 +229,8 @@ export const exportExcel: (
   params: any,
   loading?: NProgress | Ref<boolean>
 ) => {
-  return promise(request({ url: url, method: 'get', params, responseType: 'blob' }), loading)
-    .then((res: any) => {
+  return promise(request({ url: url, method: 'get', params, responseType: 'blob' }), loading).then(
+    (res: any) => {
       if (res) {
         const blob = new Blob([res], {
           type: 'application/vnd.ms-excel'
@@ -233,8 +243,91 @@ export const exportExcel: (
         window.URL.revokeObjectURL(link.href)
       }
       return true
-    })
-    .catch((e) => {})
+    }
+  )
+}
+
+export const exportFile: (
+  fileName: string,
+  url: string,
+  params: any,
+  loading?: NProgress | Ref<boolean>
+) => Promise<any> = (
+  fileName: string,
+  url: string,
+  params: any,
+  loading?: NProgress | Ref<boolean>
+) => {
+  return promise(request({ url: url, method: 'get', params, responseType: 'blob' }), loading).then(
+    (res: any) => {
+      if (res) {
+        const blob = new Blob([res], {
+          type: 'application/octet-stream'
+        })
+        const link = document.createElement('a')
+        link.href = window.URL.createObjectURL(blob)
+        link.download = fileName
+        link.click()
+        //释放内存
+        window.URL.revokeObjectURL(link.href)
+      }
+      return true
+    }
+  )
+}
+
+export const exportExcelPost: (
+  fileName: string,
+  url: string,
+  params: any,
+  data: any,
+  loading?: NProgress | Ref<boolean>
+) => Promise<any> = (
+  fileName: string,
+  url: string,
+  params: any,
+  data: any,
+  loading?: NProgress | Ref<boolean>
+) => {
+  return promise(
+    request({
+      url: url,
+      method: 'post',
+      params, // 查询字符串参数
+      data, // 请求体数据
+      responseType: 'blob'
+    }),
+    loading
+  ).then((res: any) => {
+    if (res) {
+      const blob = new Blob([res], {
+        type: 'application/vnd.ms-excel'
+      })
+      const link = document.createElement('a')
+      link.href = window.URL.createObjectURL(blob)
+      link.download = fileName
+      link.click()
+      // 释放内存
+      window.URL.revokeObjectURL(link.href)
+    }
+    return true
+  })
+}
+
+export const download: (
+  url: string,
+  method: string,
+  data?: any,
+  params?: any,
+  loading?: NProgress | Ref<boolean>
+) => Promise<any> = (
+  url: string,
+  method: string,
+  data?: any,
+  params?: any,
+  loading?: NProgress | Ref<boolean>
+) => {
+  return promise(request({ url: url, method: method, data, params, responseType: 'blob' }), loading)
 }
 
 /**

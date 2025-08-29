@@ -1,13 +1,23 @@
 <template>
-  <el-dialog :title="$t('views.applicationOverview.appInfo.SettingAPIKeyDialog.dialogTitle')" v-model="dialogVisible">
+  <el-dialog
+    :title="$t('common.setting')"
+    v-model="dialogVisible"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
+  >
     <el-form label-position="top" ref="settingFormRef" :model="form">
-      <el-form-item :label="$t('views.applicationOverview.appInfo.SettingAPIKeyDialog.allowCrossDomainLabel')" @click.prevent>
+      <el-form-item
+        :label="$t('views.applicationOverview.appInfo.SettingAPIKeyDialog.allowCrossDomainLabel')"
+        @click.prevent
+      >
         <el-switch size="small" v-model="form.allow_cross_domain"></el-switch>
       </el-form-item>
       <el-form-item>
         <el-input
           v-model="form.cross_domain_list"
-          :placeholder="$t('views.applicationOverview.appInfo.SettingAPIKeyDialog.crossDomainPlaceholder')"
+          :placeholder="
+            $t('views.applicationOverview.appInfo.SettingAPIKeyDialog.crossDomainPlaceholder')
+          "
           :rows="10"
           type="textarea"
         />
@@ -15,9 +25,9 @@
     </el-form>
     <template #footer>
       <span class="dialog-footer">
-        <el-button @click.prevent="dialogVisible = false">{{$t('views.applicationOverview.appInfo.SettingAPIKeyDialog.cancelButtonText')}}</el-button>
+        <el-button @click.prevent="dialogVisible = false">{{ $t('common.cancel') }}</el-button>
         <el-button type="primary" @click="submit(settingFormRef)" :loading="loading">
-          {{$t('views.applicationOverview.appInfo.SettingAPIKeyDialog.saveButtonText')}}
+          {{ $t('common.save') }}
         </el-button>
       </span>
     </template>
@@ -28,8 +38,10 @@ import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import overviewApi from '@/api/application-overview'
-import { MsgSuccess, MsgConfirm } from '@/utils/message'
+import overviewSystemApi from '@/api/system-api-key'
+import { MsgSuccess } from '@/utils/message'
 import { t } from '@/locales'
+
 const route = useRoute()
 const {
   params: { id }
@@ -47,6 +59,7 @@ const dialogVisible = ref<boolean>(false)
 const loading = ref(false)
 
 const APIKeyId = ref('')
+const APIType = ref('APPLICATION')
 
 watch(dialogVisible, (bool) => {
   if (!bool) {
@@ -57,8 +70,9 @@ watch(dialogVisible, (bool) => {
   }
 })
 
-const open = (data: any) => {
+const open = (data: any, type: string) => {
   APIKeyId.value = data.id
+  APIType.value = type
   form.value.allow_cross_domain = data.allow_cross_domain
   form.value.cross_domain_list = data.cross_domain_list?.length
     ? data.cross_domain_list?.join('\n')
@@ -78,10 +92,16 @@ const submit = async (formEl: FormInstance | undefined) => {
             })
           : []
       }
-      overviewApi.putAPIKey(id as string, APIKeyId.value, obj, loading).then((res) => {
+
+      const apiCall =
+        APIType.value === 'APPLICATION'
+          ? overviewApi.putAPIKey(id as string, APIKeyId.value, obj, loading)
+          : overviewSystemApi.putAPIKey(APIKeyId.value, obj, loading)
+
+      apiCall.then((res) => {
         emit('refresh')
         //@ts-ignore
-        MsgSuccess(t('views.applicationOverview.appInfo.SettingAPIKeyDialog.successMessage'))
+        MsgSuccess(t('common.settingSuccess'))
         dialogVisible.value = false
       })
     }
@@ -90,4 +110,4 @@ const submit = async (formEl: FormInstance | undefined) => {
 
 defineExpose({ open })
 </script>
-<style lang="scss" scope></style>
+<style lang="scss" scoped></style>

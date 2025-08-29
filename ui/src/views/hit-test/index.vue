@@ -3,12 +3,12 @@
     <LayoutContainer>
       <template #header>
         <h4>
-          命中测试
-          <el-text type="info" class="ml-4">针对用户提问调试段落匹配情况，保障回答效果。</el-text>
+          {{ $t('views.application.hitTest.title') }}
+          <el-text type="info" class="ml-4"> {{ $t('views.application.hitTest.text') }}</el-text>
         </h4>
       </template>
       <div class="hit-test__main p-16" v-loading="loading">
-        <div class="question-title clearfix" v-if="questionTitle">
+        <div class="question-title" :style="{ visibility: questionTitle ? 'visible' : 'hidden' }">
           <div class="avatar">
             <AppAvatar>
               <img src="@/assets/user-icon.svg" style="width: 54%" alt="" />
@@ -20,8 +20,19 @@
         </div>
         <el-scrollbar>
           <div class="hit-test-height">
-            <el-empty v-if="first" :image="emptyImg" description="命中段落显示在这里" />
-            <el-empty v-else-if="paragraphDetail.length == 0" description="没有命中的分段" />
+            <el-empty
+              v-if="first"
+              :image="emptyImg"
+              :description="$t('views.application.hitTest.emptyMessage1')"
+              style="padding-top: 160px"
+              :image-size="125"
+            />
+            <el-empty
+              v-else-if="paragraphDetail.length == 0"
+              :description="$t('views.application.hitTest.emptyMessage2')"
+              style="padding-top: 160px"
+              :image-size="125"
+            />
             <el-row v-else>
               <el-col
                 :xs="24"
@@ -80,10 +91,14 @@
     <div class="hit-test__operate p-24 pt-0">
       <el-popover :visible="popoverVisible" placement="right-end" :width="500" trigger="click">
         <template #reference>
-          <el-button icon="Setting" class="mb-8" @click="settingChange('open')">参数设置</el-button>
+          <el-button icon="Setting" class="mb-8" @click="settingChange('open')">{{
+            $t('common.paramSetting')
+          }}</el-button>
         </template>
         <div class="mb-16">
-          <div class="title mb-8">检索模式</div>
+          <div class="title mb-8">
+            {{ $t('views.application.applicationForm.dialog.selectSearchMode') }}
+          </div>
           <el-radio-group
             v-model="cloneForm.search_mode"
             class="card__radio"
@@ -95,8 +110,12 @@
               :class="cloneForm.search_mode === 'embedding' ? 'active' : ''"
             >
               <el-radio value="embedding" size="large">
-                <p class="mb-4">向量检索</p>
-                <el-text type="info">通过向量距离计算与用户问题最相似的文本分段</el-text>
+                <p class="mb-4">
+                  {{ $t('views.application.applicationForm.dialog.vectorSearch') }}
+                </p>
+                <el-text type="info">{{
+                  $t('views.application.applicationForm.dialog.vectorSearchTooltip')
+                }}</el-text>
               </el-radio>
             </el-card>
             <el-card
@@ -105,8 +124,12 @@
               :class="cloneForm.search_mode === 'keywords' ? 'active' : ''"
             >
               <el-radio value="keywords" size="large">
-                <p class="mb-4">全文检索</p>
-                <el-text type="info">通过关键词检索，返回包含关键词最多的文本分段</el-text>
+                <p class="mb-4">
+                  {{ $t('views.application.applicationForm.dialog.fullTextSearch') }}
+                </p>
+                <el-text type="info">{{
+                  $t('views.application.applicationForm.dialog.fullTextSearchTooltip')
+                }}</el-text>
               </el-radio>
             </el-card>
             <el-card
@@ -115,10 +138,12 @@
               :class="cloneForm.search_mode === 'blend' ? 'active' : ''"
             >
               <el-radio value="blend" size="large">
-                <p class="mb-4">混合检索</p>
-                <el-text type="info"
-                  >同时执行全文检索和向量检索，再进行重排序，从两类查询结果中选择匹配用户问题的最佳结果</el-text
-                >
+                <p class="mb-4">
+                  {{ $t('views.application.applicationForm.dialog.hybridSearch') }}
+                </p>
+                <el-text type="info">{{
+                  $t('views.application.applicationForm.dialog.hybridSearchTooltip')
+                }}</el-text>
               </el-radio>
             </el-card>
           </el-radio-group>
@@ -126,7 +151,9 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <div class="mb-16">
-              <div class="title mb-8">相似度高于</div>
+              <div class="title mb-8">
+                {{ $t('views.application.applicationForm.dialog.similarityThreshold') }}
+              </div>
               <el-input-number
                 v-model="cloneForm.similarity"
                 :min="0"
@@ -141,11 +168,13 @@
           </el-col>
           <el-col :span="12">
             <div class="mb-16">
-              <div class="title mb-8">返回分段数 TOP</div>
+              <div class="title mb-8">
+                {{ $t('views.application.applicationForm.dialog.topReferences') }}
+              </div>
               <el-input-number
                 v-model="cloneForm.top_number"
                 :min="1"
-                :max="100"
+                :max="10000"
                 controls-position="right"
                 class="w-full"
               />
@@ -154,8 +183,10 @@
         </el-row>
 
         <div class="text-right">
-          <el-button @click="popoverVisible = false">取消</el-button>
-          <el-button type="primary" @click="settingChange('close')">确认</el-button>
+          <el-button @click="popoverVisible = false">{{ $t('common.cancel') }}</el-button>
+          <el-button type="primary" @click="settingChange('close')">{{
+            $t('common.confirm')
+          }}</el-button>
         </div>
       </el-popover>
       <div class="operate-textarea flex">
@@ -163,7 +194,7 @@
           ref="quickInputRef"
           v-model="inputValue"
           type="textarea"
-          placeholder="请输入"
+          :placeholder="$t('common.inputPlaceholder')"
           :autosize="{ minRows: 1, maxRows: 8 }"
           @keydown.enter="sendChatHandle($event)"
         />
@@ -187,7 +218,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { reactive, ref, onMounted, computed } from 'vue'
+import { nextTick, ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { cloneDeep } from 'lodash'
 import datasetApi from '@/api/dataset'
@@ -195,13 +226,14 @@ import applicationApi from '@/api/application'
 import ParagraphDialog from '@/views/paragraph/component/ParagraphDialog.vue'
 import { arraySort } from '@/utils/utils'
 import emptyImg from '@/assets/hit-test-empty.png'
-
+import { t } from '@/locales'
 const route = useRoute()
 const {
   meta: { activeMenu },
   params: { id }
 } = route as any
 
+const quickInputRef = ref()
 const ParagraphDialogRef = ref()
 const loading = ref(false)
 const paragraphDetail = ref<any[]>([])
@@ -249,22 +281,37 @@ function settingChange(val: string) {
 }
 
 function editParagraph(row: any) {
-  title.value = '分段详情'
+  title.value = t('views.paragraph.paragraphDetail')
   ParagraphDialogRef.value.open(row)
 }
 
 function sendChatHandle(event: any) {
-  if (!event.ctrlKey) {
-    // 如果没有按下组合键ctrl，则会阻止默认事件
+  if (!event?.ctrlKey && !event?.shiftKey && !event?.altKey && !event?.metaKey) {
+    // 如果没有按下组合键，则会阻止默认事件
     event.preventDefault()
     if (!isDisabledChart.value && !loading.value) {
       getHitTestList()
     }
   } else {
-    // 如果同时按下ctrl+回车键，则会换行
-    inputValue.value += '\n'
+    // 如果同时按下ctrl/shift/cmd/opt +enter，则会换行
+    insertNewlineAtCursor(event)
   }
 }
+const insertNewlineAtCursor = (event?: any) => {
+  const textarea = quickInputRef.value.$el.querySelector(
+    '.el-textarea__inner'
+  ) as HTMLTextAreaElement
+  const startPos = textarea.selectionStart
+  const endPos = textarea.selectionEnd
+  // 阻止默认行为（避免额外的换行符）
+  event.preventDefault()
+  // 在光标处插入换行符
+  inputValue.value = inputValue.value.slice(0, startPos) + '\n' + inputValue.value.slice(endPos)
+  nextTick(() => {
+    textarea.setSelectionRange(startPos + 1, startPos + 1) // 光标定位到换行后位置
+  })
+}
+
 function getHitTestList() {
   const obj = {
     query_text: inputValue.value,
@@ -310,6 +357,8 @@ onMounted(() => {})
       padding-left: 40px;
       .text {
         padding: 6px 0;
+        height: 34px;
+        box-sizing: border-box;
       }
     }
   }

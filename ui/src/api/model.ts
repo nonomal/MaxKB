@@ -35,6 +35,13 @@ const getProvider: (loading?: Ref<boolean>) => Promise<Result<Array<Provider>>> 
 }
 
 /**
+ * 获得供应商列表
+ */
+const getProviderByModelType: (model_type: string, loading?: Ref<boolean>) => Promise<Result<Array<Provider>>> = (model_type, loading) => {
+  return get(`${prefix_provider}`, {model_type}, loading)
+}
+
+/**
  * 获取模型创建表单
  * @param provider
  * @param model_type
@@ -51,6 +58,18 @@ const getModelCreateForm: (
   return get(`${prefix_provider}/model_form`, { provider, model_type, model_name }, loading)
 }
 
+/**
+ * 获取模型参数表单
+ * @param model_id 模型id
+ * @param loading
+ * @returns
+ */
+const getModelParamsForm: (
+  model_id: string,
+  loading?: Ref<boolean>
+) => Promise<Result<Array<FormField>>> = (model_id, loading) => {
+  return get(`model/${model_id}/model_params_form`, {}, loading)
+}
 /**
  * 获取模型类型列表
  * @param provider 供应商
@@ -79,6 +98,15 @@ const listBaseModel: (
   return get(`${prefix_provider}/model_list`, { provider, model_type }, loading)
 }
 
+const listBaseModelParamsForm: (
+  provider: string,
+  model_type: string,
+  model_name: string,
+  loading?: Ref<boolean>
+) => Promise<Result<Array<BaseModel>>> = (provider, model_type, model_name, loading) => {
+  return get(`${prefix_provider}/model_params_form`, { provider, model_type, model_name}, loading)
+}
+
 /**
  * 创建模型
  * @param request 请求对象
@@ -104,6 +132,20 @@ const updateModel: (
   loading?: Ref<boolean>
 ) => Promise<Result<Model>> = (model_id, request, loading) => {
   return put(`${prefix}/${model_id}`, request, {}, loading)
+}
+
+/**
+ * 修改模型参数配置
+ * @param request 請求對象
+ * @param loading 加載器
+ * @returns
+ */
+const updateModelParamsForm: (
+  model_id: string,
+  request: any[],
+  loading?: Ref<boolean>
+) => Promise<Result<Model>> = (model_id, request, loading) => {
+  return put(`${prefix}/${model_id}/model_params_form`, request, {}, loading)
 }
 
 /**
@@ -154,10 +196,14 @@ export default {
   getModelCreateForm,
   listModelType,
   listBaseModel,
+  listBaseModelParamsForm,
   createModel,
   updateModel,
   deleteModel,
   getModelById,
   getModelMetaById,
-  pauseDownload
+  pauseDownload,
+  getModelParamsForm,
+  updateModelParamsForm,
+  getProviderByModelType
 }

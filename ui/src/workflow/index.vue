@@ -2,6 +2,7 @@
   <div className="workflow-app" id="container"></div>
   <!-- 辅助工具栏 -->
   <Control class="workflow-control" v-if="lf" :lf="lf"></Control>
+  <TeleportContainer :flow-id="flowId" />
 </template>
 <script setup lang="ts">
 import LogicFlow from '@logicflow/core'
@@ -12,10 +13,13 @@ import { baseNodes } from '@/workflow/common/data'
 import '@logicflow/extension/lib/style/index.css'
 import '@logicflow/core/dist/style/index.css'
 import { initDefaultShortcut } from '@/workflow/common/shortcut'
+import Dagre from '@/workflow/plugins/dagre'
+import { getTeleport } from '@/workflow/common/teleport'
 const nodes: any = import.meta.glob('./nodes/**/index.ts', { eager: true })
 
 defineOptions({ name: 'WorkFlow' })
-
+const TeleportContainer = getTeleport()
+const flowId = ref('')
 type ShapeItem = {
   type?: string
   text?: string
@@ -49,9 +53,16 @@ const graphData = computed({
 
 const lf = ref()
 onMounted(() => {
+  renderGraphData()
+})
+const render = (data: any) => {
+  lf.value.render(data)
+}
+const renderGraphData = (data?: any) => {
   const container: any = document.querySelector('#container')
   if (container) {
     lf.value = new LogicFlow({
+      plugins: [Dagre],
       textEdit: false,
       adjustEdge: false,
       adjustEdgeStartAndEnd: false,
@@ -78,22 +89,30 @@ onMounted(() => {
         strokeWidth: 1
       }
     })
+    lf.value.on('graph:rendered', () => {
+      flowId.value = lf.value.graphModel.flowId
+    })
     initDefaultShortcut(lf.value, lf.value.graphModel)
     lf.value.batchRegister([...Object.keys(nodes).map((key) => nodes[key].default), AppEdge])
     lf.value.setDefaultEdgeType('app-edge')
 
-    lf.value.render(graphData.value)
+    lf.value.render(data ? data : {})
 
     lf.value.graphModel.eventCenter.on('delete_edge', (id_list: Array<string>) => {
       id_list.forEach((id: string) => {
         lf.value.deleteEdge(id)
       })
     })
+    lf.value.graphModel.eventCenter.on('anchor:drop', (data: any) => {
+      // 清除当前节点下面的子节点的所有缓存
+      data.nodeModel.clear_next_node_field(false)
+    })
+
     setTimeout(() => {
       lf.value?.fitView()
     }, 500)
   }
-})
+}
 const validate = () => {
   return Promise.all(lf.value.graphModel.nodes.map((element: any) => element?.validate?.()))
 }
@@ -128,7 +147,7 @@ const addNode = (shapeItem: ShapeItem) => {
 }
 
 const clearGraphData = () => {
-  return lf.value.graphModel.clearData()
+  return lf.value.clearData()
 }
 
 defineExpose({
@@ -136,7 +155,9 @@ defineExpose({
   validate,
   getGraphData,
   addNode,
-  clearGraphData
+  clearGraphData,
+  renderGraphData,
+  render
 })
 </script>
 <style lang="scss">
@@ -150,5 +171,8 @@ defineExpose({
   bottom: 24px;
   left: 24px;
   z-index: 2;
+}
+.lf-drag-able {
+  cursor: pointer;
 }
 </style>

@@ -26,6 +26,8 @@ DATABASES = {
     'default': CONFIG.get_db_setting()
 }
 
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -41,24 +43,29 @@ INSTALLED_APPS = [
     "drf_yasg",  # swagger 接口
     'django_filters',  # 条件过滤
     'django_apscheduler',
-    'common'
+    'common',
+    'function_lib',
+    'django_celery_beat'
 
 ]
 
 MIDDLEWARE = [
+    'django.middleware.locale.LocaleMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
+    'common.middleware.gzip.GZipMiddleware',
     'common.middleware.static_headers_middleware.StaticHeadersMiddleware',
-    'common.middleware.cross_domain_middleware.CrossDomainMiddleware'
-
+    'common.middleware.cross_domain_middleware.CrossDomainMiddleware',
+    'common.middleware.doc_headers_middleware.DocHeadersMiddleware'
 ]
 
 JWT_AUTH = {
     'JWT_EXPIRATION_DELTA': datetime.timedelta(seconds=60 * 60 * 2)  # <-- 设置token有效时间
 }
 
+APPS_DIR = os.path.join(PROJECT_DIR, 'apps')
 ROOT_URLCONF = 'smartdoc.urls'
 # FORCE_SCRIPT_NAME
 TEMPLATES = [
@@ -79,6 +86,7 @@ TEMPLATES = [
 
 SWAGGER_SETTINGS = {
     'DEFAULT_AUTO_SCHEMA_CLASS': 'common.config.swagger_conf.CustomSwaggerAutoSchema',
+    'DEFAULT_GENERATOR_CLASS': 'common.config.swagger_conf.CustomOpenAPISchemaGenerator',
     "DEFAULT_MODEL_RENDERING": "example",
     'USE_SESSION_AUTH': False,
     'SECURITY_DEFINITIONS': {
@@ -101,14 +109,13 @@ CACHES = {
             'CULL_FREQUENCY': 5,
         }
     },
+    'default_file': {
+        'BACKEND': 'common.cache.file_cache.FileCache',
+        'LOCATION': os.path.join(PROJECT_DIR, 'data', 'cache', "default_file_cache")  # 文件夹路径
+    },
     'chat_cache': {
-        'BACKEND': 'common.cache.mem_cache.MemCache',
-        'LOCATION': 'unique-snowflake',
-        'TIMEOUT': 60 * 30,
-        'OPTIONS': {
-            'MAX_ENTRIES': 150,
-            'CULL_FREQUENCY': 5,
-        }
+        'BACKEND': 'common.cache.file_cache.FileCache',
+        'LOCATION': os.path.join(PROJECT_DIR, 'data', 'cache', "chat_cache")  # 文件夹路径
     },
     # 存储用户信息
     'user_cache': {
@@ -119,6 +126,10 @@ CACHES = {
     "token_cache": {
         'BACKEND': 'common.cache.file_cache.FileCache',
         'LOCATION': os.path.join(PROJECT_DIR, 'data', 'cache', "token_cache")  # 文件夹路径
+    },
+    'captcha_cache': {
+        'BACKEND': 'common.cache.file_cache.FileCache',
+        'LOCATION': os.path.join(PROJECT_DIR, 'data', 'cache', "captcha_cache")  # 文件夹路径
     }
 }
 
@@ -168,13 +179,31 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/4.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = CONFIG.get_time_zone()
 
+# 启用国际化
 USE_I18N = True
 
-USE_TZ = False
+# 启用本地化
+USE_L10N = True
+
+# 启用时区
+USE_TZ = True
+
+# 默认语言
+LANGUAGE_CODE = CONFIG.get("LANGUAGE_CODE")
+
+# 支持的语言
+LANGUAGES = [
+    ('en', 'English'),
+    ('zh', '中文简体'),
+    ('zh-hant', '中文繁体')
+]
+
+# 翻译文件路径
+LOCALE_PATHS = [
+    os.path.join(BASE_DIR.parent, 'locales')
+]
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/

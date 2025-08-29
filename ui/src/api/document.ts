@@ -1,8 +1,9 @@
 import { Result } from '@/request/Result'
-import { get, post, del, put, exportExcel } from '@/request/index'
+import { get, post, del, put, exportExcel, exportFile } from '@/request/index'
 import type { Ref } from 'vue'
 import type { KeyValue } from '@/api/type/common'
 import type { pageRequest } from '@/api/type/common'
+
 const prefix = '/dataset'
 
 /**
@@ -26,14 +27,14 @@ const listSplitPattern: (
 
 /**
  * 文档分页列表
- * @param 参数  dataset_id,   
+ * @param 参数  dataset_id,
  * page {
-              "current_page": "string",
-              "page_size": "string",
-            }
-* param {
-          "name": "string",
-        }
+ "current_page": "string",
+ "page_size": "string",
+ }
+ * param {
+ "name": "string",
+ }
  */
 
 const getDocument: (
@@ -58,22 +59,22 @@ const getAllDocument: (dataset_id: string, loading?: Ref<boolean>) => Promise<Re
 
 /**
  * 创建批量文档
- * @param 参数 
+ * @param 参数
  * {
-  "name": "string",
-  "paragraphs": [
-    {
-      "content": "string",
-      "title": "string",
-      "problem_list": [
-          {
-            "id": "string",
-              "content": "string"
-          }
-      ]
-    }
-  ]
-}
+ "name": "string",
+ "paragraphs": [
+ {
+ "content": "string",
+ "title": "string",
+ "problem_list": [
+ {
+ "id": "string",
+ "content": "string"
+ }
+ ]
+ }
+ ]
+ }
  */
 const postDocument: (
   dataset_id: string,
@@ -85,13 +86,13 @@ const postDocument: (
 
 /**
  * 修改文档
- * @param 参数 
- * dataset_id, document_id, 
+ * @param 参数
+ * dataset_id, document_id,
  * {
-      "name": "string",
-      "is_active": true,
-      "meta": {}
-    }
+ "name": "string",
+ "is_active": true,
+ "meta": {}
+ }
  */
 const putDocument: (
   dataset_id: string,
@@ -124,6 +125,20 @@ const delMulDocument: (
 ) => Promise<Result<boolean>> = (dataset_id, data, loading) => {
   return del(`${prefix}/${dataset_id}/document/_bach`, undefined, { id_list: data }, loading)
 }
+
+const batchRefresh: (
+  dataset_id: string,
+  data: any,
+  stateList: Array<string>,
+  loading?: Ref<boolean>
+) => Promise<Result<boolean>> = (dataset_id, data, stateList, loading) => {
+  return put(
+    `${prefix}/${dataset_id}/document/batch_refresh`,
+    { id_list: data, state_list: stateList },
+    undefined,
+    loading
+  )
+}
 /**
  * 文档详情
  * @param 参数 dataset_id
@@ -143,11 +158,12 @@ const getDocumentDetail: (dataset_id: string, document_id: string) => Promise<Re
 const putDocumentRefresh: (
   dataset_id: string,
   document_id: string,
+  state_list: Array<string>,
   loading?: Ref<boolean>
-) => Promise<Result<any>> = (dataset_id, document_id, loading) => {
+) => Promise<Result<any>> = (dataset_id, document_id, state_list, loading) => {
   return put(
     `${prefix}/${dataset_id}/document/${document_id}/refresh`,
-    undefined,
+    { state_list },
     undefined,
     loading
   )
@@ -165,6 +181,18 @@ const putDocumentSync: (
 ) => Promise<Result<any>> = (dataset_id, document_id, loading) => {
   return put(`${prefix}/${dataset_id}/document/${document_id}/sync`, undefined, undefined, loading)
 }
+const putLarkDocumentSync: (
+  dataset_id: string,
+  document_id: string,
+  loading?: Ref<boolean>
+) => Promise<Result<any>> = (dataset_id, document_id, loading) => {
+  return put(
+    `${prefix}/lark/${dataset_id}/document/${document_id}/sync`,
+    undefined,
+    undefined,
+    loading
+  )
+}
 
 /**
  * 批量同步文档
@@ -177,17 +205,24 @@ const delMulSyncDocument: (
 ) => Promise<Result<boolean>> = (dataset_id, data, loading) => {
   return put(`${prefix}/${dataset_id}/document/_bach`, { id_list: data }, undefined, loading)
 }
+const delMulLarkSyncDocument: (
+  dataset_id: string,
+  data: any,
+  loading?: Ref<boolean>
+) => Promise<Result<boolean>> = (dataset_id, data, loading) => {
+  return put(`${prefix}/lark/${dataset_id}/_batch`, { id_list: data }, undefined, loading)
+}
 
 /**
  * 创建Web站点文档
- * @param 参数 
+ * @param 参数
  * {
-    "source_url_list": [
-    "string"
-  ],
-  "selector": "string"
+ "source_url_list": [
+ "string"
+ ],
+ "selector": "string"
  }
-}
+ }
  */
 const postWebDocument: (
   dataset_id: string,
@@ -199,9 +234,9 @@ const postWebDocument: (
 
 /**
  * 导入QA文档
- * @param 参数 
+ * @param 参数
  * file
-}
+ }
  */
 const postQADocument: (
   dataset_id: string,
@@ -209,6 +244,19 @@ const postQADocument: (
   loading?: Ref<boolean>
 ) => Promise<Result<any>> = (dataset_id, data, loading) => {
   return post(`${prefix}/${dataset_id}/document/qa`, data, undefined, loading)
+}
+
+/**
+ * 导入表格
+ * @param 参数
+ * file
+ */
+const postTableDocument: (
+  dataset_id: string,
+  data: any,
+  loading?: Ref<boolean>
+) => Promise<Result<any>> = (dataset_id, data, loading) => {
+  return post(`${prefix}/${dataset_id}/document/table`, data, undefined, loading)
 }
 
 /**
@@ -257,6 +305,18 @@ const exportQATemplate: (fileName: string, type: string, loading?: Ref<boolean>)
 }
 
 /**
+ * 获得table模版
+ * @param 参数 fileName,type,
+ */
+const exportTableTemplate: (fileName: string, type: string, loading?: Ref<boolean>) => void = (
+  fileName,
+  type,
+  loading
+) => {
+  return exportExcel(fileName, `${prefix}/document/table_template/export`, { type }, loading)
+}
+
+/**
  * 导出文档
  * @param document_name 文档名称
  * @param dataset_id    数据集id
@@ -271,11 +331,61 @@ const exportDocument: (
   loading?: Ref<boolean>
 ) => Promise<any> = (document_name, dataset_id, document_id, loading) => {
   return exportExcel(
-    document_name + '.xls',
+    document_name + '.xlsx',
     `${prefix}/${dataset_id}/document/${document_id}/export`,
     {},
     loading
   )
+}
+/**
+ * 导出文档
+ * @param document_name 文档名称
+ * @param dataset_id    数据集id
+ * @param document_id   文档id
+ * @param loading       加载器
+ * @returns
+ */
+const exportDocumentZip: (
+  document_name: string,
+  dataset_id: string,
+  document_id: string,
+  loading?: Ref<boolean>
+) => Promise<any> = (document_name, dataset_id, document_id, loading) => {
+  return exportFile(
+    document_name + '.zip',
+    `${prefix}/${dataset_id}/document/${document_id}/export_zip`,
+    {},
+    loading
+  )
+}
+const batchGenerateRelated: (
+  dataset_id: string,
+  data: any,
+  loading?: Ref<boolean>
+) => Promise<Result<boolean>> = (dataset_id, data, loading) => {
+  return put(`${prefix}/${dataset_id}/document/batch_generate_related`, data, undefined, loading)
+}
+
+const cancelTask: (
+  dataset_id: string,
+  document_id: string,
+  data: any,
+  loading?: Ref<boolean>
+) => Promise<Result<boolean>> = (dataset_id, document_id, data, loading) => {
+  return put(
+    `${prefix}/${dataset_id}/document/${document_id}/cancel_task`,
+    data,
+    undefined,
+    loading
+  )
+}
+
+const batchCancelTask: (
+  dataset_id: string,
+  data: any,
+  loading?: Ref<boolean>
+) => Promise<Result<boolean>> = (dataset_id, data, loading) => {
+  return put(`${prefix}/${dataset_id}/document/cancel_task/_batch`, data, undefined, loading)
 }
 
 export default {
@@ -295,6 +405,15 @@ export default {
   putMigrateMulDocument,
   batchEditHitHandling,
   exportQATemplate,
+  exportTableTemplate,
   postQADocument,
-  exportDocument
+  postTableDocument,
+  exportDocument,
+  batchRefresh,
+  batchGenerateRelated,
+  cancelTask,
+  exportDocumentZip,
+  batchCancelTask,
+  putLarkDocumentSync,
+  delMulLarkSyncDocument
 }

@@ -1,4 +1,4 @@
 export enum hitHandlingMethod {
-  optimization = '模型优化',
-  directly_return = '直接回答'
+  optimization = 'views.document.hitHandlingMethod.optimization',
+  directly_return = 'views.document.hitHandlingMethod.directly_return'
 }

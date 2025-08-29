@@ -1,7 +1,11 @@
 <template>
-  <login-layout>
-    <LoginContainer subTitle="欢迎使用 MaxKB 智能知识库">
-      <h2 class="mb-24">忘记密码</h2>
+  <login-layout v-if="!loading" v-loading="loading || sendLoading">
+    <LoginContainer
+      :subTitle="
+        user.themeInfo?.slogan ? user.themeInfo?.slogan : $t('views.system.theme.defaultSlogan')
+      "
+    >
+      <h2 class="mb-24">{{ $t('views.login.forgotPassword') }}</h2>
       <el-form
         class="register-form"
         ref="resetPasswordFormRef"
@@ -14,7 +18,7 @@
               size="large"
               class="input-item"
               v-model="CheckEmailForm.email"
-              placeholder="请输入邮箱"
+              :placeholder="$t('views.user.userForm.form.email.placeholder')"
             >
             </el-input>
           </el-form-item>
@@ -26,7 +30,7 @@
                 size="large"
                 class="code-input"
                 v-model="CheckEmailForm.code"
-                placeholder="请输入验证码"
+                :placeholder="$t('views.login.verificationCode.placeholder')"
               >
               </el-input>
 
@@ -37,13 +41,19 @@
                 @click="sendEmail"
                 :loading="loading"
               >
-                {{ isDisabled ? `重新发送（${time}s）` : '获取验证码' }}</el-button
-              >
+                {{
+                  isDisabled
+                    ? `${$t('views.login.verificationCode.resend')}（${time}s）`
+                    : $t('views.login.verificationCode.getVerificationCode')
+                }}
+              </el-button>
             </div>
           </el-form-item>
         </div>
       </el-form>
-      <el-button size="large" type="primary" class="w-full" @click="checkCode">立即验证</el-button>
+      <el-button size="large" type="primary" class="w-full" @click="checkCode"
+        >{{ $t('views.login.buttons.checkCode') }}
+      </el-button>
       <div class="operate-container mt-12">
         <el-button
           class="register"
@@ -52,21 +62,25 @@
           type="primary"
           icon="ArrowLeft"
         >
-          返回登录
+          {{ $t('views.login.buttons.backLogin') }}
         </el-button>
       </div>
     </LoginContainer>
   </login-layout>
 </template>
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onBeforeMount, ref } from 'vue'
 import type { CheckCodeRequest } from '@/api/type/user'
 import { useRouter } from 'vue-router'
 import type { FormInstance, FormRules } from 'element-plus'
 import UserApi from '@/api/user'
 import { MsgSuccess } from '@/utils/message'
+import { t } from '@/locales'
+import useStore from '@/stores'
 
 const router = useRouter()
+const { user } = useStore()
+
 const CheckEmailForm = ref<CheckCodeRequest>({
   email: '',
   code: '',
@@ -76,12 +90,16 @@ const CheckEmailForm = ref<CheckCodeRequest>({
 const resetPasswordFormRef = ref<FormInstance>()
 const rules = ref<FormRules<CheckCodeRequest>>({
   email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
+    {
+      required: true,
+      message: t('views.user.userForm.form.email.requiredMessage'),
+      trigger: 'blur'
+    },
     {
       validator: (rule, value, callback) => {
         const emailRegExp = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(\.[a-zA-Z0-9-]+)*\.[a-zA-Z0-9]{2,6}$/
         if (!emailRegExp.test(value) && value != '') {
-          callback(new Error('请输入有效邮箱格式！'))
+          callback(new Error(t('views.user.userForm.form.email.validatorEmail')))
         } else {
           callback()
         }
@@ -89,16 +107,16 @@ const rules = ref<FormRules<CheckCodeRequest>>({
       trigger: 'blur'
     }
   ],
-  code: [{ required: true, message: '请输入验证码' }]
+  code: [{ required: true, message: t('views.login.verificationCode.placeholder') }]
 })
 const loading = ref<boolean>(false)
 const isDisabled = ref<boolean>(false)
 const time = ref<number>(60)
-
+const sendLoading = ref<boolean>(false)
 const checkCode = () => {
   resetPasswordFormRef.value
     ?.validate()
-    .then(() => UserApi.checkCode(CheckEmailForm.value, loading))
+    .then(() => UserApi.checkCode(CheckEmailForm.value, sendLoading))
     .then(() => router.push({ name: 'reset_password', params: CheckEmailForm.value }))
 }
 /**
@@ -107,8 +125,8 @@ const checkCode = () => {
 const sendEmail = () => {
   resetPasswordFormRef.value?.validateField('email', (v: boolean) => {
     if (v) {
-      UserApi.sendEmit(CheckEmailForm.value.email, 'reset_password', loading).then(() => {
-        MsgSuccess('发送验证码成功')
+      UserApi.sendEmit(CheckEmailForm.value.email, 'reset_password', sendLoading).then(() => {
+        MsgSuccess(t('views.login.verificationCode.successMessage'))
         isDisabled.value = true
         handleTimeChange()
       })
@@ -126,5 +144,11 @@ const handleTimeChange = () => {
     }, 1000)
   }
 }
+onBeforeMount(() => {
+  loading.value = true
+  user.asyncGetProfile().then(() => {
+    loading.value = false
+  })
+})
 </script>
-<style lang="scss" scope></style>
+<style lang="scss" scoped></style>

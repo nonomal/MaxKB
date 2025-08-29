@@ -7,6 +7,7 @@
     @desc:
 """
 import re
+import traceback
 from typing import List
 
 from charset_normalizer import detect
@@ -26,7 +27,8 @@ class TextSplitHandle(BaseSplitHandle):
     def support(self, file, get_buffer):
         buffer = get_buffer(file)
         file_name: str = file.name.lower()
-        if file_name.endswith(".md") or file_name.endswith('.txt'):
+        if file_name.endswith(".md") or file_name.endswith('.txt') or file_name.endswith('.TXT') or file_name.endswith(
+                '.MD'):
             return True
         result = detect(buffer)
         if result['encoding'] is not None and result['confidence'] is not None and result['encoding'] != 'ascii' and \
@@ -48,3 +50,11 @@ class TextSplitHandle(BaseSplitHandle):
         return {'name': file.name,
                 'content': split_model.parse(content)
                 }
+
+    def get_content(self, file, save_image):
+        buffer = file.read()
+        try:
+           return buffer.decode(detect(buffer)['encoding'])
+        except BaseException as e:
+            traceback.print_exception(e)
+            return f'{e}'

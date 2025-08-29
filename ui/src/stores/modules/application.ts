@@ -2,9 +2,8 @@ import { defineStore } from 'pinia'
 import applicationApi from '@/api/application'
 import applicationXpackApi from '@/api/application-xpack'
 import { type Ref } from 'vue'
-
+import { getBrowserLang } from '@/locales/index'
 import useUserStore from './user'
-
 const useApplicationStore = defineStore({
   id: 'application',
   state: () => ({
@@ -77,36 +76,29 @@ const useApplicationStore = defineStore({
 
     async asyncGetAppProfile(loading?: Ref<boolean>) {
       return new Promise((resolve, reject) => {
-        const user = useUserStore()
-        if (user.isEnterprise()) {
-          applicationXpackApi
-            .getAppXpackProfile(loading)
-            .then((data) => {
-              resolve(data)
-            })
-            .catch((error) => {
-              reject(error)
-            })
-        } else {
-          applicationApi
-            .getAppProfile(loading)
-            .then((data) => {
-              resolve(data)
-            })
-            .catch((error) => {
-              reject(error)
-            })
-        }
+        applicationApi
+          .getAppProfile(loading)
+          .then((res) => {
+            sessionStorage.setItem('language', res.data?.language || getBrowserLang())
+            resolve(res)
+          })
+          .catch((error) => {
+            reject(error)
+          })
       })
     },
 
-    async asyncAppAuthentication(token: string, loading?: Ref<boolean>) {
+    async asyncAppAuthentication(
+      token: string,
+      loading?: Ref<boolean>,
+      authentication_value?: any
+    ) {
       return new Promise((resolve, reject) => {
         applicationApi
-          .postAppAuthentication(token, loading)
+          .postAppAuthentication(token, loading, authentication_value)
           .then((res) => {
-            localStorage.setItem('accessToken', res.data)
-            sessionStorage.setItem('accessToken', res.data)
+            localStorage.setItem(`${token}-accessToken`, res.data)
+            sessionStorage.setItem(`${token}-accessToken`, res.data)
             resolve(res)
           })
           .catch((error) => {
@@ -122,6 +114,18 @@ const useApplicationStore = defineStore({
       return new Promise((resolve, reject) => {
         applicationApi
           .putApplication(id, data, loading)
+          .then((data) => {
+            resolve(data)
+          })
+          .catch((error) => {
+            reject(error)
+          })
+      })
+    },
+    async validatePassword(id: string, password: string, loading?: Ref<boolean>) {
+      return new Promise((resolve, reject) => {
+        applicationApi
+          .validatePassword(id, password, loading)
           .then((data) => {
             resolve(data)
           })

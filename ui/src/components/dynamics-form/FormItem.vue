@@ -2,13 +2,18 @@
   <el-form-item
     v-loading="loading"
     :style="formItemStyle"
-    :label="formfield.label"
     :prop="formfield.field"
     :key="formfield.field"
     :rules="rules"
   >
     <template #label v-if="formfield.label">
-      <FormItemLabel :form-field="formfield"></FormItemLabel>
+      <FormItemLabel v-if="isString(formfield.label)" :form-field="formfield"></FormItemLabel>
+      <component
+        v-else
+        :is="formfield.label.input_type"
+        :label="formfield.label.label"
+        v-bind="label_attrs"
+      ></component>
     </template>
     <component
       ref="componentFormRef"
@@ -30,6 +35,7 @@ import type { FormField } from '@/components/dynamics-form/type'
 import FormItemLabel from './FormItemLabel.vue'
 import type { Dict } from '@/api/type/common'
 import bus from '@/bus'
+import { t } from '@/locales'
 const props = defineProps<{
   // 双向绑定的值
   modelValue: any
@@ -58,6 +64,9 @@ const emit = defineEmits(['change'])
 
 const loading = ref<boolean>(false)
 
+const isString = (value: any) => {
+  return typeof value === 'string'
+}
 const itemValue = computed({
   get: () => {
     return props.modelValue
@@ -72,7 +81,13 @@ const itemValue = computed({
   }
 })
 const componentFormRef = ref<any>()
-
+const label_attrs = computed(() => {
+  return props.formfield.label &&
+    typeof props.formfield.label !== 'string' &&
+    props.formfield.label.attrs
+    ? props.formfield.label.attrs
+    : {}
+})
 const props_info = computed(() => {
   return props.formfield.props_info ? props.formfield.props_info : {}
 })
@@ -87,18 +102,34 @@ const formItemStyle = computed(() => {
  * 表单错误Msg
  */
 const errMsg = computed(() => {
-  return props_info.value.err_msg ? props_info.value.err_msg : props.formfield.label + '不能为空'
+  return props_info.value.err_msg
+    ? props_info.value.err_msg
+    : isString(props.formfield.label)
+      ? props.formfield.label + ' ' + t('dynamicsForm.tip.requiredMessage')
+      : props.formfield.label.label + ' ' + t('dynamicsForm.tip.requiredMessage')
 })
+/**
+ * 反序列化
+ * @param rule
+ */
+const to_rule = (rule: any) => {
+  if (rule.validator) {
+    let validator = (rule: any, value: string, callback: any) => {}
+    eval(rule.validator)
+    return { ...rule, validator }
+  }
+  return rule
+}
 
 /**
  * 校验
  */
 const rules = computed(() => {
   return props_info.value.rules
-    ? props_info.value.rules
+    ? props_info.value.rules.map(to_rule)
     : {
         message: errMsg.value,
-        trigger: 'blur',
+        trigger: props.formfield.input_type === 'Slider' ? 'blur' : ['blur', 'change'],
         required: props.formfield.required === false ? false : true
       }
 })

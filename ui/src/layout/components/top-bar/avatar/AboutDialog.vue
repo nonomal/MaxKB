@@ -11,13 +11,10 @@
     </template>
     <div class="about-ui" v-loading="loading">
       <div class="flex">
-        <span class="label">授权给</span><span>{{ licenseInfo?.corporation || '-' }}</span>
+        <span class="label">{{ $t('layout.about.authorize') }}</span><span>{{ licenseInfo?.corporation || '-' }}</span>
       </div>
       <div class="flex">
-        <span class="label">ISV</span><span>{{ licenseInfo?.isv || '-' }}</span>
-      </div>
-      <div class="flex">
-        <span class="label">到期时间</span>
+        <span class="label">{{ $t('layout.about.expiredTime') }}</span>
         <span
           >{{ licenseInfo?.expired || '-' }}
           <span class="danger" v-if="licenseInfo?.expired && fromNowDate(licenseInfo?.expired)"
@@ -26,16 +23,17 @@
         >
       </div>
       <div class="flex">
-        <span class="label">版本</span><span>{{ user.showXpack() ? '专业版' : '社区版' }}</span>
+        <span class="label">{{ $t('layout.about.edition.label') }}</span>
+        <span>{{ user.showXpack() ? $t('layout.about.edition.professional') : $t('layout.about.edition.community') }}</span>
       </div>
       <div class="flex">
-        <span class="label">版本号</span><span>{{ user.version }}</span>
+        <span class="label">{{ $t('layout.about.version') }}</span><span>{{ user.version }}</span>
       </div>
       <div class="flex">
-        <span class="label">序列号</span><span>{{ licenseInfo?.serialNo || '-' }}</span>
+        <span class="label">{{ $t('layout.about.serialNo') }}</span><span>{{ licenseInfo?.serialNo || '-' }}</span>
       </div>
       <div class="flex">
-        <span class="label">备注</span><span>{{ licenseInfo?.remark || '-' }}</span>
+        <span class="label">{{ $t('layout.about.remark') }}</span><span>{{ licenseInfo?.remark || '-' }}</span>
       </div>
       <div class="mt-16 flex align-center" v-if="user.showXpack()">
         <el-upload
@@ -46,11 +44,12 @@
           :on-change="onChange"
           v-hasPermission="new Role('ADMIN')"
         >
-          <el-button class="border-primary mr-16">更新 License</el-button>
+          <el-button class="border-primary mr-16">{{ $t('layout.about.update') }} License</el-button>
         </el-upload>
-
-        <el-button class="border-primary" @click="toSupport">获取技术支持</el-button>
       </div>
+    </div>
+    <div class="border-t text-center mt-16 p-16 pb-0">
+      <el-text type="info">{{ $t('layout.copyright') }}</el-text>
     </div>
   </el-dialog>
 </template>
@@ -98,11 +97,6 @@ function getLicenseInfo() {
   licenseApi.getLicense(loading).then((res: any) => {
     licenseInfo.value = res.data?.license
   })
-}
-
-function toSupport() {
-  const url = 'https://support.fit2cloud.com/'
-  window.open(url, '_blank')
 }
 
 defineExpose({ open })

@@ -16,6 +16,7 @@ from common.exception.app_exception import NotFound404
 from common.field.common import UploadedFileField
 from common.util.field_message import ErrMessage
 from dataset.models import File
+from django.utils.translation import gettext_lazy as _
 
 mime_types = {"html": "text/html", "htm": "text/html", "shtml": "text/html", "css": "text/css", "xml": "text/xml",
               "gif": "image/gif", "jpeg": "image/jpeg", "jpg": "image/jpeg", "js": "application/javascript",
@@ -27,6 +28,9 @@ mime_types = {"html": "text/html", "htm": "text/html", "shtml": "text/html", "cs
               "woff2": "font/woff2", "jar": "application/java-archive", "war": "application/java-archive",
               "ear": "application/java-archive", "json": "application/json", "hqx": "application/mac-binhex40",
               "doc": "application/msword", "pdf": "application/pdf", "ps": "application/postscript",
+              "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
               "eps": "application/postscript", "ai": "application/postscript", "rtf": "application/rtf",
               "m3u8": "application/vnd.apple.mpegurl", "kml": "application/vnd.google-earth.kml+xml",
               "kmz": "application/vnd.google-earth.kmz", "xls": "application/vnd.ms-excel",
@@ -55,13 +59,17 @@ mime_types = {"html": "text/html", "htm": "text/html", "shtml": "text/html", "cs
 
 
 class FileSerializer(serializers.Serializer):
-    file = UploadedFileField(required=True, error_messages=ErrMessage.image("文件"))
+    file = UploadedFileField(required=True, error_messages=ErrMessage.image(_('file')))
+    meta = serializers.JSONField(required=False, allow_null=True)
 
     def upload(self, with_valid=True):
         if with_valid:
             self.is_valid(raise_exception=True)
-        file_id = uuid.uuid1()
-        file = File(id=file_id, file_name=self.data.get('file').name)
+        meta = self.data.get('meta', None)
+        if not meta:
+            meta = {'debug': True}
+        file_id = meta.get('file_id', uuid.uuid1())
+        file = File(id=file_id, file_name=self.data.get('file').name, meta=meta)
         file.save(self.data.get('file').read())
         return f'/api/file/{file_id}'
 
@@ -74,6 +82,12 @@ class FileSerializer(serializers.Serializer):
             file_id = self.data.get('id')
             file = QuerySet(File).filter(id=file_id).first()
             if file is None:
-                raise NotFound404(404, "不存在的文件")
+                raise NotFound404(404, _('File not found'))
+            # 如果是音频文件，直接返回文件流
+            file_type = file.file_name.split(".")[-1]
+            if file_type in ['mp3', 'wav', 'ogg', 'aac']:
+                return HttpResponse(file.get_byte(), status=200, headers={'Content-Type': f'audio/{file_type}',
+                                                                          'Content-Disposition': 'attachment; filename="{}"'.format(
+                                                                              file.file_name)})
             return HttpResponse(file.get_byte(), status=200,
-                                headers={'Content-Type': mime_types.get(file.file_name.split(".")[-1], 'text/plain')})
+                                headers={'Content-Type': mime_types.get(file_type, 'text/plain')})

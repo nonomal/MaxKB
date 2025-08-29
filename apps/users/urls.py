@@ -6,6 +6,8 @@ app_name = "user"
 urlpatterns = [
     path('profile', views.Profile.as_view()),
     path('user', views.User.as_view(), name="profile"),
+    path('user/captcha', views.CaptchaView.as_view(), name='captcha'),
+    path('user/language', views.SwitchUserLanguageView.as_view(), name='language'),
     path('user/list', views.User.Query.as_view()),
     path('user/login', views.Login.as_view(), name='login'),
     path('user/logout', views.Logout.as_view(), name='logout'),
@@ -21,4 +23,5 @@ urlpatterns = [
          name="user_manage_re_password"),
     path("user_manage/<int:current_page>/<int:page_size>", views.UserManage.Page.as_view(),
          name="user_manage_re_password"),
+    path('user/list/<str:type>', views.UserListView.as_view()),
 ]

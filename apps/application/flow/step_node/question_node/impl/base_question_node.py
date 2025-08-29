@@ -6,15 +6,19 @@
     @date：2024/6/4 14:30
     @desc:
 """
+import re
 import time
 from functools import reduce
 from typing import List, Dict
 
+from django.db.models import QuerySet
 from langchain.schema import HumanMessage, SystemMessage
 from langchain_core.messages import BaseMessage
 
 from application.flow.i_step_node import NodeResult, INode
 from application.flow.step_node.question_node.i_question_node import IQuestionNode
+from setting.models import Model
+from setting.models_provider import get_model_credential
 from setting.models_provider.tools import get_model_instance_by_model_user_id
 
 
@@ -28,8 +32,8 @@ def _write_context(node_variable: Dict, workflow_variable: Dict, node: INode, wo
     node.context['history_message'] = node_variable['history_message']
     node.context['question'] = node_variable['question']
     node.context['run_time'] = time.time() - node.context['start_time']
-    if workflow.is_result():
-        workflow.answer += answer
+    if workflow.is_result(node, NodeResult(node_variable, workflow_variable)):
+        node.answer_text = answer
 
 
 def write_context_stream(node_variable: Dict, workflow_variable: Dict, node: INode, workflow):
@@ -45,8 +49,6 @@ def write_context_stream(node_variable: Dict, workflow_variable: Dict, node: INo
     for chunk in response:
         answer += chunk.content
         yield chunk.content
-    answer += '\n'
-    yield '\n'
     _write_context(node_variable, workflow_variable, node, workflow, answer)
 
 
@@ -63,14 +65,37 @@ def write_context(node_variable: Dict, workflow_variable: Dict, node: INode, wor
     _write_context(node_variable, workflow_variable, node, workflow, answer)
 
 
+def get_default_model_params_setting(model_id):
+    model = QuerySet(Model).filter(id=model_id).first()
+    credential = get_model_credential(model.provider, model.model_type, model.model_name)
+    model_params_setting = credential.get_model_params_setting_form(
+        model.model_name).get_default_form_data()
+    return model_params_setting
+
+
 class BaseQuestionNode(IQuestionNode):
+    def save_context(self, details, workflow_manage):
+        self.context['run_time'] = details.get('run_time')
+        self.context['question'] = details.get('question')
+        self.context['answer'] = details.get('answer')
+        self.context['message_tokens'] = details.get('message_tokens')
+        self.context['answer_tokens'] = details.get('answer_tokens')
+        if self.node_params.get('is_result', False):
+            self.answer_text = details.get('answer')
+
     def execute(self, model_id, system, prompt, dialogue_number, history_chat_record, stream, chat_id, chat_record_id,
+                model_params_setting=None,
                 **kwargs) -> NodeResult:
-        chat_model = get_model_instance_by_model_user_id(model_id, self.flow_params_serializer.data.get('user_id'))
+        if model_params_setting is None:
+            model_params_setting = get_default_model_params_setting(model_id)
+        chat_model = get_model_instance_by_model_user_id(model_id, self.flow_params_serializer.data.get('user_id'),
+                                                         **model_params_setting)
         history_message = self.get_history_message(history_chat_record, dialogue_number)
         self.context['history_message'] = history_message
         question = self.generate_prompt_question(prompt)
         self.context['question'] = question.content
+        system = self.workflow_manage.generate_prompt(system)
+        self.context['system'] = system
         message_list = self.generate_message_list(system, prompt, history_message)
         self.context['message_list'] = message_list
         if stream:
@@ -91,6 +116,9 @@ class BaseQuestionNode(IQuestionNode):
             [history_chat_record[index].get_human_message(), history_chat_record[index].get_ai_message()]
             for index in
             range(start_index if start_index > 0 else 0, len(history_chat_record))], [])
+        for message in history_message:
+            if isinstance(message.content, str):
+                message.content = re.sub('<form_rander>[\d\D]*?<\/form_rander>', '', message.content)
         return history_message
 
     def generate_prompt_question(self, prompt):
@@ -117,7 +145,7 @@ class BaseQuestionNode(IQuestionNode):
             'name': self.node.properties.get('stepName'),
             "index": index,
             'run_time': self.context.get('run_time'),
-            'system': self.node_params.get('system'),
+            'system': self.context.get('system'),
             'history_message': [{'content': message.content, 'role': message.type} for message in
                                 (self.context.get('history_message') if self.context.get(
                                     'history_message') is not None else [])],

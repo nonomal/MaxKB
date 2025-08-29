@@ -1,7 +1,7 @@
 <template>
   <p class="bold title p-24" style="padding-bottom: 0">
     <span class="flex align-center">
-      <span>关联问题</span>
+      <span>{{ $t('views.paragraph.relatedProblem.title') }}</span>
       <el-divider direction="vertical" class="mr-4" />
       <el-button text @click="addProblem">
         <el-icon><Plus /></el-icon>
@@ -18,7 +18,7 @@
           allow-create
           default-first-option
           :reserve-keyword="false"
-          placeholder="请选择问题"
+          :placeholder="$t('views.paragraph.relatedProblem.placeholder')"
           remote
           :remote-method="remoteMethod"
           :loading="optionLoading"
@@ -45,7 +45,9 @@
             effect="plain"
             closable
           >
-            {{ item.content }}
+            <auto-tooltip :content="item.content">
+              {{ item.content }}
+            </auto-tooltip>
           </TagEllipsis>
         </template>
       </div>

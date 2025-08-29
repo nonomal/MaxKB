@@ -25,59 +25,58 @@
     </div>
     <div class="chat__main chat-width">
       <AiChat
-        v-model:data="applicationDetail"
+        v-model:applicationDetails="applicationDetail"
+        type="ai-chat"
         :available="applicationAvailable"
         :appId="applicationDetail?.id"
-      ></AiChat>
+        :record="recordList"
+        :chatId="currentChatId"
+        @refresh="refresh"
+      >
+        <template #operateBefore>
+          <div>
+            <el-button type="primary" link class="new-chat-button mb-8" @click="newChat">
+              <el-icon><Plus /></el-icon><span class="ml-4">{{ $t('chat.createChat') }}</span>
+            </el-button>
+          </div>
+        </template>
+      </AiChat>
     </div>
-    <div class="chat__footer"></div>
   </div>
 </template>
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, computed } from 'vue'
+
 import { isAppIcon } from '@/utils/application'
 import useStore from '@/stores'
-const route = useRoute()
-const {
-  params: { accessToken }
-} = route as any
 
-const { application, user } = useStore()
+const { user } = useStore()
 
 const isDefaultTheme = computed(() => {
   return user.isDefaultTheme()
 })
 
 const loading = ref(false)
-const applicationDetail = ref<any>({})
-const applicationAvailable = ref<boolean>(true)
-
-function getAccessToken(token: string) {
-  application
-    .asyncAppAuthentication(token, loading)
-    .then(() => {
-      getAppProfile()
-    })
-    .catch(() => {
-      applicationAvailable.value = false
-    })
-}
-function getAppProfile() {
-  application
-    .asyncGetAppProfile(loading)
-    .then((res: any) => {
-      applicationDetail.value = res.data
-    })
-    .catch(() => {
-      applicationAvailable.value = false
-    })
-}
-
-onMounted(() => {
-  user.changeUserType(2)
-  getAccessToken(accessToken)
+const props = defineProps<{
+  application_profile: any
+  applicationAvailable: boolean
+}>()
+const applicationDetail = computed({
+  get: () => {
+    return props.application_profile
+  },
+  set: (v) => {}
 })
+const recordList = ref([])
+const currentChatId = ref('')
+
+function newChat() {
+  currentChatId.value = 'new'
+  recordList.value = []
+}
+function refresh(id: string) {
+  currentChatId.value = id
+}
 </script>
 <style lang="scss">
 .chat {
@@ -100,27 +99,8 @@ onMounted(() => {
     overflow: hidden;
   }
 
-  &__footer {
-    background: #f3f7f9;
-    height: 80px;
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    box-sizing: border-box;
-    border-radius: 8px !important;
-    &:before {
-      background: linear-gradient(0deg, #f3f7f9 0%, rgba(243, 247, 249, 0) 100%);
-      content: '';
-      position: absolute;
-      width: 100%;
-      top: -16px;
-      left: 0;
-      height: 16px;
-    }
-  }
   .chat-width {
-    max-width: var(--app-chat-width, 860px);
+    // max-width: 80%;
     margin: 0 auto;
   }
 }

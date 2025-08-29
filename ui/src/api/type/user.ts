@@ -25,6 +25,7 @@ interface User {
   is_edit_password?: boolean
   IS_XPACK?: boolean
   XPACK_LICENSE_IS_VALID?: boolean
+  language: string
 }
 
 interface LoginRequest {
@@ -36,6 +37,10 @@ interface LoginRequest {
    * 密码
    */
   password: string
+  /**
+   * 验证码
+   */
+  captcha: string
 }
 
 interface RegisterRequest {

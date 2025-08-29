@@ -1,10 +1,12 @@
 <template>
   <el-dialog
-    title="编辑分段"
+    :title="$t('views.paragraph.editParagraph')"
     v-model="dialogVisible"
     width="80%"
     destroy-on-close
     class="paragraph-dialog"
+    :close-on-click-modal="false"
+    :close-on-press-escape="false"
   >
     <el-row v-if="isConnect">
       <el-col :span="18" class="p-24">
@@ -13,7 +15,7 @@
       <el-col :span="6" class="border-l" style="width: 300px">
         <p class="bold title p-24" style="padding-bottom: 0">
           <span class="flex align-center">
-            <span>关联问题</span>
+            <span>{{ $t('views.paragraph.relatedProblem.title') }}</span>
             <el-divider direction="vertical" class="mr-4" />
             <el-button text @click="addProblem">
               <el-icon><Plus /></el-icon>
@@ -25,10 +27,11 @@
             <el-input
               v-if="isAddProblem"
               v-model="problemValue"
-              placeholder="请选择问题"
+              :placeholder="$t('views.paragraph.relatedProblem.placeholder')"
               @change="addProblemHandle"
               @blur="isAddProblem = false"
               ref="inputRef"
+              class="mb-8"
             />
 
             <template v-for="(item, index) in detail.problem_list" :key="index">
@@ -39,7 +42,9 @@
                 effect="plain"
                 closable
               >
-                {{ item.content }}
+                <auto-tooltip :content="item.content">
+                  {{ item.content }}
+                </auto-tooltip>
               </TagEllipsis>
             </template>
           </div>
@@ -52,8 +57,8 @@
 
     <template #footer>
       <span class="dialog-footer">
-        <el-button @click.prevent="dialogVisible = false"> 取消 </el-button>
-        <el-button type="primary" @click="submitHandle"> 保存 </el-button>
+        <el-button @click.prevent="dialogVisible = false"> {{ $t('common.cancel') }} </el-button>
+        <el-button type="primary" @click="submitHandle"> {{ $t('common.save') }} </el-button>
       </span>
     </template>
   </el-dialog>
@@ -96,9 +101,14 @@ function delProblemHandle(item: any, index: number) {
 }
 function addProblemHandle() {
   if (problemValue.value.trim()) {
-    detail.value?.problem_list?.push({
-      content: problemValue.value.trim()
-    })
+    if (
+      !detail.value?.problem_list.some((item: any) => item.content === problemValue.value.trim())
+    ) {
+      detail.value?.problem_list?.push({
+        content: problemValue.value.trim()
+      })
+    }
+
     problemValue.value = ''
     isAddProblem.value = false
   }
@@ -122,4 +132,4 @@ const submitHandle = async () => {
 
 defineExpose({ open })
 </script>
-<style lang="scss" scope></style>
+<style lang="scss" scoped></style>

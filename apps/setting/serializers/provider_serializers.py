@@ -23,9 +23,19 @@ from common.exception.app_exception import AppApiException
 from common.util.field_message import ErrMessage
 from common.util.rsa_util import rsa_long_decrypt, rsa_long_encrypt
 from dataset.models import DataSet
-from setting.models.model_management import Model, Status
+from setting.models.model_management import Model, Status, PermissionType
+from setting.models_provider import get_model, get_model_credential
 from setting.models_provider.base_model_provider import ValidCode, DownModelChunkStatus
 from setting.models_provider.constants.model_provider_constants import ModelProvideConstants
+from django.utils.translation import gettext_lazy as _
+
+
+def get_default_model_params_setting(provider, model_type, model_name):
+    credential = get_model_credential(provider, model_type, model_name)
+    setting_form = credential.get_model_params_setting_form(model_name)
+    if setting_form is not None:
+        return setting_form.to_form_list()
+    return []
 
 
 class ModelPullManage:
@@ -63,55 +73,76 @@ class ModelPullManage:
 
 class ModelSerializer(serializers.Serializer):
     class Query(serializers.Serializer):
-        user_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid("用户id"))
+        user_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid(_('user id')))
 
         name = serializers.CharField(required=False, max_length=64,
-                                     error_messages=ErrMessage.char("模型名称"))
+                                     error_messages=ErrMessage.char(_('model name')))
 
-        model_type = serializers.CharField(required=False, error_messages=ErrMessage.char("模型类型"))
+        model_type = serializers.CharField(required=False, error_messages=ErrMessage.char(_('model type')))
 
-        model_name = serializers.CharField(required=False, error_messages=ErrMessage.char("基础模型"))
+        model_name = serializers.CharField(required=False, error_messages=ErrMessage.char(_('model name')))
 
-        provider = serializers.CharField(required=False, error_messages=ErrMessage.char("供应商"))
+        provider = serializers.CharField(required=False, error_messages=ErrMessage.char(_('provider')))
+
+        permission_type = serializers.CharField(required=False, error_messages=ErrMessage.char(_('permission type')))
+
+        create_user = serializers.CharField(required=False, error_messages=ErrMessage.char(_('create user')))
 
         def list(self, with_valid):
             if with_valid:
                 self.is_valid(raise_exception=True)
             user_id = self.data.get('user_id')
             name = self.data.get('name')
-            model_query_set = QuerySet(Model).filter((Q(user_id=user_id) | Q(permission_type='PUBLIC')))
+            create_user = self.data.get('create_user')
+            if create_user is not None:
+                # 当前用户能查看自己的模型，包括公开和私有的
+                if create_user == user_id:
+                    model_query_set = QuerySet(Model).filter(Q(user_id=create_user))
+                # 当前用户能查看其他人的模型，只能查看公开的
+                else:
+                    model_query_set = QuerySet(Model).filter(
+                        (Q(user_id=self.data.get('create_user')) & Q(permission_type='PUBLIC')))
+            else:
+                model_query_set = QuerySet(Model).filter((Q(user_id=user_id) | Q(permission_type='PUBLIC')))
             query_params = {}
             if name is not None:
-                query_params['name__contains'] = name
+                query_params['name__icontains'] = name
             if self.data.get('model_type') is not None:
                 query_params['model_type'] = self.data.get('model_type')
             if self.data.get('model_name') is not None:
                 query_params['model_name'] = self.data.get('model_name')
             if self.data.get('provider') is not None:
                 query_params['provider'] = self.data.get('provider')
+            if self.data.get('permission_type') is not None:
+                query_params['permission_type'] = self.data.get('permission_type')
 
             return [
                 {'id': str(model.id), 'provider': model.provider, 'name': model.name, 'model_type': model.model_type,
                  'model_name': model.model_name, 'status': model.status, 'meta': model.meta,
-                 'permission_type': model.permission_type, 'user_id': model.user_id} for model in
+                 'permission_type': model.permission_type, 'user_id': model.user_id, 'username': model.user.username}
+                for model in
                 model_query_set.filter(**query_params).order_by("-create_time")]
 
     class Edit(serializers.Serializer):
-        user_id = serializers.CharField(required=False, error_messages=ErrMessage.uuid("用户id"))
+        user_id = serializers.CharField(required=False, error_messages=ErrMessage.uuid(_('user id')))
 
         name = serializers.CharField(required=False, max_length=64,
-                                     error_messages=ErrMessage.char("模型名称"))
+                                     error_messages=ErrMessage.char(_("model name")))
 
-        model_type = serializers.CharField(required=False, error_messages=ErrMessage.char("模型类型"))
+        model_type = serializers.CharField(required=False, error_messages=ErrMessage.char(_("model type")))
 
-        permission_type = serializers.CharField(required=False, error_messages=ErrMessage.char("权限"), validators=[
-            validators.RegexValidator(regex=re.compile("^PUBLIC|PRIVATE$"),
-                                      message="权限只支持PUBLIC|PRIVATE", code=500)
-        ])
+        permission_type = serializers.CharField(required=False, error_messages=ErrMessage.char(_("permission type")),
+                                                validators=[
+                                                    validators.RegexValidator(regex=re.compile("^PUBLIC|PRIVATE$"),
+                                                                              message=_(
+                                                                                  "permissions only supportPUBLIC|PRIVATE"),
+                                                                              code=500)
+                                                ])
 
-        model_name = serializers.CharField(required=False, error_messages=ErrMessage.char("模型类型"))
+        model_name = serializers.CharField(required=False, error_messages=ErrMessage.char(_("model type")))
 
-        credential = serializers.DictField(required=False, error_messages=ErrMessage.dict("认证信息"))
+        credential = serializers.DictField(required=False,
+                                           error_messages=ErrMessage.dict(_("certification information")))
 
         def is_valid(self, model=None, raise_exception=False):
             super().is_valid(raise_exception=True)
@@ -135,36 +166,46 @@ class ModelSerializer(serializers.Serializer):
             source_encryption_model_credential = model_credential.encryption_dict(source_model_credential)
             if credential is not None:
                 for k in source_encryption_model_credential.keys():
-                    if credential[k] == source_encryption_model_credential[k]:
+                    if k in credential and credential[k] == source_encryption_model_credential[k]:
                         credential[k] = source_model_credential[k]
             return credential, model_credential, provider_handler
 
     class Create(serializers.Serializer):
-        user_id = serializers.CharField(required=True, error_messages=ErrMessage.uuid("用户id"))
+        user_id = serializers.CharField(required=True, error_messages=ErrMessage.uuid(_("user id")))
 
-        name = serializers.CharField(required=True, max_length=64, error_messages=ErrMessage.char("模型名称"))
+        name = serializers.CharField(required=True, max_length=64, error_messages=ErrMessage.char(_("model name")))
 
-        provider = serializers.CharField(required=True, error_messages=ErrMessage.char("供应商"))
+        provider = serializers.CharField(required=True, error_messages=ErrMessage.char(_("provider")))
 
-        model_type = serializers.CharField(required=True, error_messages=ErrMessage.char("模型类型"))
+        model_type = serializers.CharField(required=True, error_messages=ErrMessage.char(_("model type")))
 
-        permission_type = serializers.CharField(required=True, error_messages=ErrMessage.char("权限"), validators=[
-            validators.RegexValidator(regex=re.compile("^PUBLIC|PRIVATE$"),
-                                      message="权限只支持PUBLIC|PRIVATE", code=500)
-        ])
+        permission_type = serializers.CharField(required=True, error_messages=ErrMessage.char(_("permission type")),
+                                                validators=[
+                                                    validators.RegexValidator(regex=re.compile("^PUBLIC|PRIVATE$"),
+                                                                              message=_(
+                                                                                  "permissions only supportPUBLIC|PRIVATE"),
+                                                                              code=500)
+                                                ])
 
-        model_name = serializers.CharField(required=True, error_messages=ErrMessage.char("基础模型"))
+        model_name = serializers.CharField(required=True, error_messages=ErrMessage.char(_("model name")))
 
-        credential = serializers.DictField(required=True, error_messages=ErrMessage.dict("认证信息"))
+        model_params_form = serializers.ListField(required=False, default=list,
+                                                  error_messages=ErrMessage.char(_("parameter configuration")))
+
+        credential = serializers.DictField(required=True,
+                                           error_messages=ErrMessage.dict(_("certification information")))
 
         def is_valid(self, *, raise_exception=False):
             super().is_valid(raise_exception=True)
             if QuerySet(Model).filter(user_id=self.data.get('user_id'),
                                       name=self.data.get('name')).exists():
-                raise AppApiException(500, f'模型名称【{self.data.get("name")}】已存在')
+                raise AppApiException(500, _('Model name【{model_name}】already exists').format(
+                    model_name=self.data.get("name")))
+            default_params = {item['field']: item['default_value'] for item in self.data.get('model_params_form')}
             ModelProvideConstants[self.data.get('provider')].value.is_valid_credential(self.data.get('model_type'),
                                                                                        self.data.get('model_name'),
                                                                                        self.data.get('credential'),
+                                                                                       default_params,
                                                                                        raise_exception=True
                                                                                        )
 
@@ -184,10 +225,12 @@ class ModelSerializer(serializers.Serializer):
             model_type = self.data.get('model_type')
             model_name = self.data.get('model_name')
             permission_type = self.data.get('permission_type')
+            model_params_form = self.data.get('model_params_form')
             model_credential_str = json.dumps(credential)
             model = Model(id=uuid.uuid1(), status=status, user_id=user_id, name=name,
                           credential=rsa_long_encrypt(model_credential_str),
                           provider=provider, model_type=model_type, model_name=model_name,
+                          model_params_form=model_params_form,
                           permission_type=permission_type)
             model.save()
             if status == Status.DOWNLOAD:
@@ -207,10 +250,55 @@ class ModelSerializer(serializers.Serializer):
                     credential),
                 'permission_type': model.permission_type}
 
+    class ModelParams(serializers.Serializer):
+        id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid("模型id"))
+
+        user_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid(_("user id")))
+
+        def is_valid(self, *, raise_exception=False):
+            super().is_valid(raise_exception=True)
+            model = QuerySet(Model).filter(id=self.data.get("id")).first()
+            if model is None:
+                raise AppApiException(500, '模型不存在')
+            if model.permission_type == PermissionType.PRIVATE and self.data.get('user_id') != str(model.user_id):
+                raise AppApiException(500, '没有权限访问到此模型')
+
+        def get_model_params(self, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+            model_id = self.data.get('id')
+            model = QuerySet(Model).filter(id=model_id).first()
+            # 已经保存过的模型参数表单
+            return model.model_params_form
+
+    class ModelParamsForm(serializers.Serializer):
+        id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid("模型id"))
+
+        user_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid(_("user id")))
+
+        def is_valid(self, *, raise_exception=False):
+            super().is_valid(raise_exception=True)
+            model = QuerySet(Model).filter(id=self.data.get("id")).first()
+            if model is None:
+                raise AppApiException(500, '模型不存在')
+            if model.permission_type == PermissionType.PRIVATE and self.data.get('user_id') != str(model.user_id):
+                raise AppApiException(500, '没有权限访问到此模型')
+
+        def save_model_params_form(self, model_params_form, with_valid=True):
+            if with_valid:
+                self.is_valid(raise_exception=True)
+            if model_params_form is None:
+                model_params_form = []
+            model_id = self.data.get('id')
+            model = QuerySet(Model).filter(id=model_id).first()
+            model.model_params_form = model_params_form
+            model.save()
+            return True
+
     class Operate(serializers.Serializer):
         id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid("模型id"))
 
-        user_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid("用户id"))
+        user_id = serializers.UUIDField(required=True, error_messages=ErrMessage.uuid(_("user id")))
 
         def is_valid(self, *, raise_exception=False):
             super().is_valid(raise_exception=True)
@@ -225,9 +313,16 @@ class ModelSerializer(serializers.Serializer):
             return ModelSerializer.model_to_dict(model)
 
         def one_meta(self, with_valid=False):
+            model = None
             if with_valid:
-                self.is_valid(raise_exception=True)
-            model = QuerySet(Model).get(id=self.data.get('id'), user_id=self.data.get('user_id'))
+                super().is_valid(raise_exception=True)
+                model = QuerySet(Model).filter(id=self.data.get("id")).first()
+                if model is None:
+                    raise AppApiException(500, _('Model does not exist'))
+                if model.permission_type == 'PRIVATE' and str(model.user_id) != str(self.data.get("user_id")):
+                    raise Exception(_('No permission to use this model') + f"{model.name}")
+            if model is None:
+                model = QuerySet(Model).get(id=self.data.get('id'))
             return {'id': str(model.id), 'provider': model.provider, 'name': model.name, 'model_type': model.model_type,
                     'model_name': model.model_name,
                     'status': model.status,
@@ -250,6 +345,14 @@ class ModelSerializer(serializers.Serializer):
                 dataset_count = DataSet.objects.filter(embedding_mode_id=model_id).count()
                 if dataset_count > 0:
                     raise AppApiException(500, f"该模型关联了{dataset_count} 个知识库，无法删除该模型。")
+            elif model.model_type == 'TTS':
+                dataset_count = Application.objects.filter(tts_model_id=model_id).count()
+                if dataset_count > 0:
+                    raise AppApiException(500, f"该模型关联了{dataset_count} 个应用，无法删除该模型。")
+            elif model.model_type == 'STT':
+                dataset_count = Application.objects.filter(stt_model_id=model_id).count()
+                if dataset_count > 0:
+                    raise AppApiException(500, f"该模型关联了{dataset_count} 个应用，无法删除该模型。")
             model.delete()
             return True
 
@@ -272,10 +375,12 @@ class ModelSerializer(serializers.Serializer):
                     model=model)
                 try:
                     model.status = Status.SUCCESS
+                    default_params = {item['field']: item['default_value'] for item in model.model_params_form}
                     # 校验模型认证数据
                     provider_handler.is_valid_credential(model.model_type,
                                                          instance.get("model_name"),
                                                          credential,
+                                                         default_params,
                                                          raise_exception=True)
 
                 except AppApiException as e:
@@ -301,7 +406,7 @@ class ModelSerializer(serializers.Serializer):
 
 
 class ProviderSerializer(serializers.Serializer):
-    provider = serializers.CharField(required=True, error_messages=ErrMessage.char("供应商"))
+    provider = serializers.CharField(required=True, error_messages=ErrMessage.char(_("provider")))
 
     method = serializers.CharField(required=True, error_messages=ErrMessage.char("执行函数名称"))
 

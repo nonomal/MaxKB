@@ -84,30 +84,24 @@ class BaseVectorStore(ABC):
         chunk_list = chunk_data(data)
         result = sub_array(chunk_list)
         for child_array in result:
-            self._batch_save(child_array, embedding, lambda: True)
+            self._batch_save(child_array, embedding, lambda: False)
 
-    def batch_save(self, data_list: List[Dict], embedding: Embeddings, is_save_function):
-        # 获取锁
-        lock.acquire()
-        try:
-            """
-            批量插入
-            :param data_list: 数据列表
-            :param embedding: 向量化处理器
-            :return: bool
-            """
-            self.save_pre_handler()
-            chunk_list = chunk_data_list(data_list)
-            result = sub_array(chunk_list)
-            for child_array in result:
-                if is_save_function():
-                    self._batch_save(child_array, embedding, is_save_function)
-                else:
-                    break
-        finally:
-            # 释放锁
-            lock.release()
-        return True
+    def batch_save(self, data_list: List[Dict], embedding: Embeddings, is_the_task_interrupted):
+        """
+        批量插入
+        @param data_list: 数据列表
+        @param embedding: 向量化处理器
+        @param is_the_task_interrupted: 判断是否中断任务
+        :return: bool
+        """
+        self.save_pre_handler()
+        chunk_list = chunk_data_list(data_list)
+        result = sub_array(chunk_list)
+        for child_array in result:
+            if not is_the_task_interrupted():
+                self._batch_save(child_array, embedding, is_the_task_interrupted)
+            else:
+                break
 
     @abstractmethod
     def _save(self, text, source_type: SourceType, dataset_id: str, document_id: str, paragraph_id: str, source_id: str,
@@ -116,7 +110,7 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def _batch_save(self, text_list: List[Dict], embedding: Embeddings, is_save_function):
+    def _batch_save(self, text_list: List[Dict], embedding: Embeddings, is_the_task_interrupted):
         pass
 
     def search(self, query_text, dataset_id_list: list[str], exclude_document_id_list: list[str],
@@ -127,7 +121,7 @@ class BaseVectorStore(ABC):
             return []
         embedding_query = embedding.embed_query(query_text)
         result = self.query(embedding_query, dataset_id_list, exclude_document_id_list, exclude_paragraph_list,
-                            is_active, 1, 0.65)
+                            is_active, 1, 3, 0.65)
         return result[0]
 
     @abstractmethod
@@ -169,7 +163,7 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def delete_bu_document_id_list(self, document_id_list: List[str]):
+    def delete_by_document_id_list(self, document_id_list: List[str]):
         pass
 
     @abstractmethod

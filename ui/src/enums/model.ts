@@ -1,15 +1,18 @@
 export enum PermissionType {
-  PRIVATE = '私有',
-  PUBLIC = '公用'
+  PRIVATE = 'common.private',
+  PUBLIC = 'common.public'
 }
 export enum PermissionDesc {
-  PRIVATE = '仅自己使用',
-  PUBLIC = '所有用户都可使用，不能编辑'
+  PRIVATE = 'views.template.templateForm.form.permissionType.privateDesc',
+  PUBLIC = 'views.template.templateForm.form.permissionType.publicDesc',
 }
 
 export enum modelType {
-  EMBEDDING = '向量模型',
-  LLM = '大语言模型'
+  EMBEDDING = 'views.template.model.EMBEDDING',
+  LLM = 'views.template.model.LLM',
+  STT = 'views.template.model.STT',
+  TTS = 'views.template.model.TTS',
+  IMAGE = 'views.template.model.IMAGE',
+  TTI = 'views.template.model.TTI',
+  RERANKER = 'views.template.model.RERANKER'
 }
-
-

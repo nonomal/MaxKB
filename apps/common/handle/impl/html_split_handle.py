@@ -7,6 +7,7 @@
     @desc:
 """
 import re
+import traceback
 from typing import List
 
 from bs4 import BeautifulSoup
@@ -38,7 +39,7 @@ def get_encoding(buffer):
 class HTMLSplitHandle(BaseSplitHandle):
     def support(self, file, get_buffer):
         file_name: str = file.name.lower()
-        if file_name.endswith(".html"):
+        if file_name.endswith(".html") or file_name.endswith(".HTML"):
             return True
         return False
 
@@ -59,3 +60,14 @@ class HTMLSplitHandle(BaseSplitHandle):
         return {'name': file.name,
                 'content': split_model.parse(content)
                 }
+
+    def get_content(self, file, save_image):
+        buffer = file.read()
+
+        try:
+            encoding = get_encoding(buffer)
+            content = buffer.decode(encoding)
+            return html2text(content)
+        except BaseException as e:
+            traceback.print_exception(e)
+            return f'{e}'
